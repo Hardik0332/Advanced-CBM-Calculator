@@ -1,0 +1,1741 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CBM Calculator — Shipping Dashboard</title>
+  <meta name="description"
+    content="Professional CBM (Cubic Meter) calculator dashboard for shipping logistics. Calculate volume, weight, and manage shipments with ease." />
+
+  <!-- React 18 -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- PapaParse for CSV -->
+  <script src="https://unpkg.com/papaparse@5/papaparse.min.js"></script>
+  <!-- SheetJS for Excel -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <!-- jsPDF + autoTable for PDF export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <!-- Google Font: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          colors: {
+            surface: { 50: '#f8fafc', 100: '#f1f5f9', 700: '#1e293b', 800: '#0f172a', 900: '#020617' },
+            accent: { DEFAULT: '#6366f1', light: '#818cf8', dark: '#4f46e5', glow: 'rgba(99,102,241,0.15)' },
+          },
+          boxShadow: {
+            glow: '0 0 20px rgba(99,102,241,0.2)',
+            card: '0 4px 24px rgba(0,0,0,0.06)',
+            'card-dark': '0 4px 24px rgba(0,0,0,0.3)',
+            'card-hover': '0 8px 40px rgba(0,0,0,0.12)',
+          },
+          backgroundImage: {
+            'glass-light': 'linear-gradient(135deg, rgba(255,255,255,0.7), rgba(255,255,255,0.4))',
+            'glass-dark': 'linear-gradient(135deg, rgba(15,23,42,0.7), rgba(30,41,59,0.5))',
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    *,
+    *::before,
+    *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    /* ── Global smooth theme transition ── */
+    *,
+    *::before,
+    *::after {
+      transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+      transition-duration: 180ms;
+      transition-timing-function: ease-in-out;
+    }
+
+    /* Slow transition only for theme toggle (intentional) */
+    .theme-slow-transition {
+      transition-duration: 500ms !important;
+    }
+
+    /* Exclude animation/transform properties from the global transition */
+    .no-theme-transition {
+      transition: none !important;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: #f8fafc;
+      color: #334155;
+      min-height: 100vh;
+    }
+
+    .dark body,
+    body.dark {
+      background: #0f172a;
+      color: #cbd5e1;
+    }
+
+    /* ── Custom scrollbar (light) ── */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 999px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    .dark ::-webkit-scrollbar-thumb {
+      background: #334155;
+    }
+
+    .dark ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+
+    /* ── Glassmorphic card ── */
+    .glass {
+      background: rgba(255, 255, 255, 0.72);
+      backdrop-filter: blur(18px) saturate(160%);
+      -webkit-backdrop-filter: blur(18px) saturate(160%);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    }
+
+    .dark .glass {
+      background: rgba(15, 23, 42, 0.72);
+      backdrop-filter: blur(18px) saturate(140%);
+      -webkit-backdrop-filter: blur(18px) saturate(140%);
+      border: 1px solid rgba(99, 102, 241, 0.12);
+      box-shadow: 0 4px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    /* ── Shimmer header text ── */
+    @keyframes shimmer {
+      0% {
+        background-position: 0% 50%;
+      }
+
+      50% {
+        background-position: 100% 50%;
+      }
+
+      100% {
+        background-position: 0% 50%;
+      }
+    }
+
+    .shimmer-text {
+      background: linear-gradient(135deg, #4f46e5, #6366f1, #8b5cf6, #06b6d4, #4f46e5);
+      background-size: 400% 400%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: shimmer 8s ease-in-out infinite;
+    }
+
+    /* ── Fade-in card animation ── */
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(16px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .fade-in {
+      animation: fadeInUp 0.4s ease-out forwards;
+    }
+
+    /* ── Pulse glow on totals ── */
+    @keyframes pulseGlow {
+
+      0%,
+      100% {
+        box-shadow: 0 0 6px rgba(99, 102, 241, 0.08);
+      }
+
+      50% {
+        box-shadow: 0 0 22px rgba(99, 102, 241, 0.28);
+      }
+    }
+
+    .pulse-glow {
+      animation: pulseGlow 3s ease-in-out infinite;
+    }
+
+    /* ── Spinner ── */
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .spinner {
+      animation: spin 0.7s linear infinite;
+      transition: none !important;
+    }
+
+    /* ── Wizard backdrop ── */
+    @keyframes wizardFadeIn {
+      from {
+        opacity: 0;
+      }
+
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes wizardSlideUp {
+      from {
+        opacity: 0;
+        transform: translateY(28px) scale(0.95);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .wizard-backdrop {
+      animation: wizardFadeIn 0.22s ease-out;
+    }
+
+    .wizard-panel {
+      animation: wizardSlideUp 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    /* ── Drag-over pulse ── */
+    @keyframes dragPulse {
+
+      0%,
+      100% {
+        border-color: rgba(99, 102, 241, 0.45);
+      }
+
+      50% {
+        border-color: rgba(99, 102, 241, 0.9);
+      }
+    }
+
+    .drag-pulse {
+      animation: dragPulse 1.1s ease-in-out infinite;
+    }
+
+    /* ── Hide number input spinners ── */
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+
+    input[type=number] {
+      -moz-appearance: textfield;
+    }
+
+    /* ── Theme toggle pill ── */
+    .theme-pill {
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 500ms ease-in-out !important;
+    }
+
+    /* ── Ambient orbs ── */
+    .orb {
+      pointer-events: none;
+      border-radius: 9999px;
+      position: fixed;
+      filter: blur(80px);
+      transition: none !important;
+    }
+
+    /* ── Progress bar fill animation ── */
+    .bar-fill {
+      transition: width 0.6s cubic-bezier(0.25, 1, 0.5, 1) !important;
+    }
+  </style>
+</head>
+
+<body id="app-body" class="min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo, useCallback, useRef, useEffect } = React;
+
+    /* ═══════════════════════════════════════════════════════
+       1. THEME HOOK  (Light / Dark / System)
+       ═══════════════════════════════════════════════════════ */
+    const THEME_KEY = 'cbm-theme';
+
+    function useTheme() {
+      const [mode, setMode] = useState(() => localStorage.getItem(THEME_KEY) || 'system');
+
+      // Resolve the effective dark flag
+      const getEffectiveDark = useCallback((m) => {
+        if (m === 'dark') return true;
+        if (m === 'light') return false;
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }, []);
+
+      const [isDark, setIsDark] = useState(() => getEffectiveDark(mode));
+
+      // Apply to <html> and <body>
+      useEffect(() => {
+        const apply = (dark) => {
+          document.documentElement.classList.toggle('dark', dark);
+          document.body.classList.toggle('dark', dark);
+          setIsDark(dark);
+        };
+        apply(getEffectiveDark(mode));
+
+        // Listen for OS preference changes when in System mode
+        const mq = window.matchMedia('(prefers-color-scheme: dark)');
+        const listener = () => { if (mode === 'system') apply(mq.matches); };
+        mq.addEventListener('change', listener);
+        return () => mq.removeEventListener('change', listener);
+      }, [mode, getEffectiveDark]);
+
+      const setTheme = useCallback((newMode) => {
+        localStorage.setItem(THEME_KEY, newMode);
+        setMode(newMode);
+      }, []);
+
+      return { mode, isDark, setTheme };
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       2. UNIT CONVERSION & CBM HELPERS
+       ═══════════════════════════════════════════════════════ */
+    const toCm = (v, u) => {
+      if (u === 'cm') return v;
+      if (u === 'inches') return v * 2.54;
+      if (u === 'feet') return v * 30.48;
+      if (u === 'meters') return v * 100;
+      return v;
+    };
+    const calcCBM = (l, w, h, u) => {
+      return (toCm(l, u) * toCm(w, u) * toCm(h, u)) / 1_000_000;
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       2b. CONTAINER CONSTANTS
+       ═══════════════════════════════════════════════════════ */
+    const CONTAINERS = {
+      '20ft': { label: "20' Standard", cbm: 33 },
+      '40ft': { label: "40' Standard", cbm: 67 },
+      '40hc': { label: "40' High Cube", cbm: 76 },
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       3. FILE-PARSING UTILITIES
+       ═══════════════════════════════════════════════════════ */
+
+    /** Extract L×W×H from a combined dimension string. */
+    const parseDimensionString = (str, delimiter = 'x') => {
+      if (!str || typeof str !== 'string') return null;
+      const esc = delimiter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pat = new RegExp(
+        '([\\d]+\\.?[\\d]*)\\s*[a-zA-Z]*\\s*' + esc +
+        '\\s*([\\d]+\\.?[\\d]*)\\s*[a-zA-Z]*\\s*' + esc +
+        '\\s*([\\d]+\\.?[\\d]*)', 'i'
+      );
+      const m = str.match(pat);
+      if (m) return { length: +m[1], width: +m[2], height: +m[3] };
+      const nums = str.match(/(\d+\.?\d*)/g);
+      if (nums && nums.length >= 3) return { length: +nums[0], width: +nums[1], height: +nums[2] };
+      return null;
+    };
+
+    /** Coerce any cell value to a valid number. */
+    const sanitizeNumeric = (val) => {
+      if (typeof val === 'number') return isNaN(val) ? 0 : val;
+      if (val == null || val === '') return 0;
+      const n = parseFloat(String(val).replace(/,/g, '').replace(/[^\d.\-]/g, '').trim());
+      return isNaN(n) ? 0 : n;
+    };
+
+    /** Parse a CSV or Excel file → { headers, rows }. */
+    const parseFile = (file) => new Promise((resolve, reject) => {
+      const name = file.name.toLowerCase();
+      if (name.endsWith('.csv')) {
+        Papa.parse(file, {
+          header: true, skipEmptyLines: true,
+          complete: r => resolve({ headers: r.meta.fields || [], rows: r.data }),
+          error: err => reject(err),
+        });
+      } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+        const reader = new FileReader();
+        reader.onload = e => {
+          try {
+            const wb = XLSX.read(e.target.result, { type: 'array' });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+            resolve({ headers: data.length ? Object.keys(data[0]) : [], rows: data });
+          } catch (err) { reject(err); }
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsArrayBuffer(file);
+      } else {
+        reject(new Error('Unsupported file type. Please upload a .csv or .xlsx file.'));
+      }
+    });
+
+    /* ── Auto-map headers to known field aliases ── */
+    const FIELD_ALIASES = {
+      name: ['product', 'name', 'item', 'description', 'sku', 'product name', 'item name'],
+      length: ['length', 'len', 'length (cm)', 'length (mm)', 'length (in)'],
+      width: ['width', 'wid', 'width (cm)', 'width (mm)', 'width (in)'],
+      height: ['height', 'ht', ' h', 'depth'],
+      packSize: ['pack', 'qty', 'quantity', 'pcs', 'units', 'pack size', 'pack qty'],
+      netWeight: ['net', 'nw', 'net weight', 'unit weight', 'net wt'],
+      grossWeight: ['gross', 'gw', 'gross weight', 'total weight', 'shipper weight', 'gross wt'],
+    };
+    const DIM_ALIASES = ['size', 'dimension', 'dim', 'dimensions', 'l x w x h', 'lxwxh'];
+
+    const autoMapHeaders = (headers) => {
+      const mapping = {};
+      let combinedDimColumn = null;
+      const norm = headers.map(h => h.toLowerCase().trim());
+      norm.forEach((nh, i) => { if (DIM_ALIASES.some(a => nh.includes(a))) combinedDimColumn = headers[i]; });
+      Object.entries(FIELD_ALIASES).forEach(([field, aliases]) => {
+        norm.forEach((nh, i) => {
+          if (!mapping[field] && aliases.some(a => nh.includes(a.trim()))) mapping[field] = headers[i];
+        });
+      });
+      return { mapping, combinedDimColumn };
+    };
+
+    /* ── Icon/colour pools for imported products ── */
+    const IMPORT_ICONS = ['📦', '⚙️', '🏗️', '🧵', '📱', '🔧', '💊', '🎁', '🧴', '🪣', '🖥️', '🔩', '🗄️', '🛢️', '🔋'];
+    const IMPORT_COLORS = [
+      { color: 'from-violet-100 to-indigo-100', border: 'border-violet-200' },
+      { color: 'from-sky-100 to-cyan-100', border: 'border-sky-200' },
+      { color: 'from-lime-100 to-emerald-100', border: 'border-lime-200' },
+      { color: 'from-fuchsia-100 to-pink-100', border: 'border-fuchsia-200' },
+      { color: 'from-orange-100 to-amber-100', border: 'border-orange-200' },
+      { color: 'from-teal-100 to-cyan-100', border: 'border-teal-200' },
+      { color: 'from-rose-100 to-pink-100', border: 'border-rose-200' },
+    ];
+
+    /** Build a normalised product object from one raw row + mapping config. */
+    const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
+      let length = 0, width = 0, height = 0;
+      if (dimConfig.combined && dimConfig.column) {
+        const parsed = parseDimensionString(String(row[dimConfig.column] || ''), dimConfig.delimiter || 'x');
+        if (parsed) { length = parsed.length; width = parsed.width; height = parsed.height; }
+      } else {
+        length = sanitizeNumeric(row[mapping.length]);
+        width = sanitizeNumeric(row[mapping.width]);
+        height = sanitizeNumeric(row[mapping.height]);
+      }
+      const style = IMPORT_COLORS[slotIndex % IMPORT_COLORS.length];
+      return {
+        id: `import-${Date.now()}-${slotIndex}-${Math.random().toString(36).substr(2, 5)}`,
+        name: String(row[mapping.name] || `Product ${slotIndex + 1}`).trim(),
+        description: 'Imported product',
+        icon: IMPORT_ICONS[slotIndex % IMPORT_ICONS.length],
+        color: style.color,
+        border: style.border,
+        unit: dimConfig.unit || 'cm',
+        length, width, height,
+        packSize: sanitizeNumeric(row[mapping.packSize]) || 1,
+        netWeightPerUnit: sanitizeNumeric(row[mapping.netWeight]),
+        grossWeightPerShipper: sanitizeNumeric(row[mapping.grossWeight]),
+      };
+    };
+
+    /** Transform all rows → valid product objects. */
+    const applyMapping = (rows, mapping, dimConfig) =>
+      rows.map((r, i) => buildProductFromRow(r, mapping, dimConfig, i))
+        .filter(p => p.length > 0 && p.width > 0 && p.height > 0);
+
+    /* ═══════════════════════════════════════════════════════
+       4. SMART DE-DUPLICATION
+       Uses normalised product name as the primary key.
+       ═══════════════════════════════════════════════════════ */
+    const normKey = (name) => name.trim().toLowerCase();
+
+    const mergeProducts = (existing, incoming) => {
+      const indexMap = new Map(existing.map((p, i) => [normKey(p.name), i]));
+      const next = [...existing];
+      let added = 0, updated = 0;
+
+      incoming.forEach((p) => {
+        const key = normKey(p.name);
+        if (indexMap.has(key)) {
+          const i = indexMap.get(key);
+          next[i] = {
+            ...next[i],
+            length: p.length,
+            width: p.width,
+            height: p.height,
+            unit: p.unit,
+            packSize: p.packSize,
+            netWeightPerUnit: p.netWeightPerUnit,
+            grossWeightPerShipper: p.grossWeightPerShipper,
+          };
+          updated++;
+        } else {
+          next.push(p);
+          indexMap.set(key, next.length - 1);
+          added++;
+        }
+      });
+
+      return { nextProducts: next, added, updated };
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       5. EXPORT UTILITIES (Excel + PDF)
+       ═══════════════════════════════════════════════════════ */
+    const exportExcel = (shipment, totals, poNumber) => {
+      const rows = shipment.map((item, i) => ({
+        '#': i + 1,
+        'Item Name': item.name,
+        'L': item.length,
+        'W': item.width,
+        'H': item.height,
+        'Unit': item.unit,
+        'Pack Size': item.packSize,
+        'Qty (Shippers)': item.quantity,
+        'Net Wt/Unit (kg)': item.netWeightPerUnit,
+        'Gross Wt/Shipper (kg)': item.grossWeightPerShipper,
+        'CBM/Shipper': +item.cbmPerShipper.toFixed(6),
+        'Total CBM': +(item.cbmPerShipper * item.quantity).toFixed(6),
+        'Total Gross Wt (kg)': +(item.grossWeightPerShipper * item.quantity).toFixed(2),
+      }));
+      // Totals row
+      rows.push({
+        '#': '', 'Item Name': 'TOTALS', 'L': '', 'W': '', 'H': '', 'Unit': '',
+        'Pack Size': '', 'Qty (Shippers)': totals.shippers,
+        'Net Wt/Unit (kg)': '', 'Gross Wt/Shipper (kg)': '',
+        'CBM/Shipper': '', 'Total CBM': +totals.cbm.toFixed(6),
+        'Total Gross Wt (kg)': +totals.grossWeight.toFixed(2),
+      });
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Shipment');
+      XLSX.writeFile(wb, `shipment${poNumber ? '_' + poNumber.replace(/\s+/g, '_') : ''}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    };
+
+    const exportPDF = (shipment, totals, poNumber, containerType, freightMode) => {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+      // Header
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Packing List / Shipment Summary', 14, 18);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100);
+      if (poNumber) doc.text(`PO / Reference: ${poNumber}`, 14, 26);
+      doc.text(`Date: ${new Date().toLocaleDateString()}`, 14, poNumber ? 32 : 26);
+      doc.text(`Freight Mode: ${freightMode === 'air' ? 'Air' : 'Ocean'}`, 14, poNumber ? 38 : 32);
+
+      // Table
+      const tableData = shipment.map((item, i) => [
+        i + 1,
+        item.name,
+        `${item.length}×${item.width}×${item.height}`,
+        item.unit,
+        item.packSize,
+        item.quantity,
+        item.netWeightPerUnit.toFixed(2),
+        item.grossWeightPerShipper.toFixed(2),
+        item.cbmPerShipper.toFixed(4),
+        (item.cbmPerShipper * item.quantity).toFixed(4),
+        (item.grossWeightPerShipper * item.quantity).toFixed(1),
+      ]);
+
+      doc.autoTable({
+        startY: poNumber ? 43 : 37,
+        head: [['#', 'Item', 'Dims', 'Unit', 'Pack', 'Qty', 'Net Wt', 'Gross Wt', 'CBM/Ship', 'Total CBM', 'Total Wt']],
+        body: tableData,
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        theme: 'grid',
+      });
+
+      // Summary footer
+      const finalY = doc.lastAutoTable.finalY + 8;
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0);
+      const cont = CONTAINERS[containerType];
+      const pct = cont ? Math.min(100, (totals.cbm / cont.cbm) * 100).toFixed(1) : '—';
+      doc.text(`Total CBM: ${totals.cbm.toFixed(4)} m³  |  Gross Weight: ${totals.grossWeight.toFixed(1)} kg  |  Shippers: ${totals.shippers}  |  Container: ${cont ? cont.label : '—'} (${pct}%)`, 14, finalY);
+
+      doc.save(`shipment${poNumber ? '_' + poNumber.replace(/\s+/g, '_') : ''}_${new Date().toISOString().slice(0, 10)}.pdf`);
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       6. INLINE SVG ICONS
+       ═══════════════════════════════════════════════════════ */
+    const PlusIcon = () => <svg className="w-5 h-5 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>;
+    const TrashIcon = () => <svg className="w-4 h-4 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>;
+    const BoxIcon = () => <svg className="w-5 h-5 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" /></svg>;
+    const ScaleIcon = () => <svg className="w-5 h-5 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 3v17.25m0 0c-1.472 0-2.882.265-4.185.75M12 20.25c1.472 0 2.882.265 4.185.75M18.75 4.97A48.416 48.416 0 0012 4.5c-2.291 0-4.545.16-6.75.47m13.5 0c1.01.143 2.01.317 3 .52m-3-.52l2.62 10.726c.122.499-.106 1.028-.589 1.202a5.988 5.988 0 01-2.031.352 5.988 5.988 0 01-2.031-.352c-.483-.174-.711-.703-.59-1.202L18.75 4.971zm-16.5.52c.99-.203 1.99-.377 3-.52m0 0l2.62 10.726c.122.499-.106 1.028-.589 1.202a5.989 5.989 0 01-2.031.352 5.989 5.989 0 01-2.031-.352c-.483-.174-.711-.703-.59-1.202L5.25 4.971z" /></svg>;
+    const TruckIcon = () => <svg className="w-5 h-5 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" /></svg>;
+    const ChevronIcon = () => <svg className="w-4 h-4 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>;
+    const UploadIcon = () => <svg className="w-12 h-12 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>;
+    const CloseIcon = () => <svg className="w-5 h-5 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
+    const CheckCircleIcon = () => <svg className="w-5 h-5 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+    const FileDocIcon = () => <svg className="w-5 h-5 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>;
+    const ArrowLeftIcon = () => <svg className="w-4 h-4 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>;
+    const ArrowRightIcon = () => <svg className="w-4 h-4 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>;
+    const WarningIcon = () => <svg className="w-4 h-4 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>;
+    const ImportIcon = () => <svg className="w-4 h-4 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>;
+    const SunIcon = () => <svg className="w-4 h-4 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" /></svg>;
+    const MoonIcon = () => <svg className="w-4 h-4 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" /></svg>;
+    const MonitorIcon = () => <svg className="w-4 h-4 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0H3" /></svg>;
+    const EditIcon = () => <svg className="w-4 h-4 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>;
+    const CopyIcon = () => <svg className="w-4 h-4 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m0 0a2.625 2.625 0 115.25 0H12m-3.75 0h3.75" /></svg>;
+    const SearchIcon = () => <svg className="w-4 h-4 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>;
+    const ExcelIcon = () => <svg className="w-4 h-4 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-12.75m0 0A1.125 1.125 0 014.5 4.5h15a1.125 1.125 0 011.125 1.125v12.75M3.375 19.5h0M20.625 4.5v14.25M20.625 4.5h0" /></svg>;
+    const PdfIcon = () => <svg className="w-4 h-4 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m.75 12l3 3m0 0l3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>;
+
+    /* ═══════════════════════════════════════════════════════
+       7. THEME TOGGLE COMPONENT
+       ═══════════════════════════════════════════════════════ */
+    const ThemeToggle = ({ mode, setTheme }) => {
+      const options = [
+        { key: 'light', icon: <SunIcon />, label: 'Light' },
+        { key: 'system', icon: <MonitorIcon />, label: 'System' },
+        { key: 'dark', icon: <MoonIcon />, label: 'Dark' },
+      ];
+
+      return (
+        <div id="theme-toggle"
+          className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-1 gap-0.5 border border-slate-200 dark:border-slate-700"
+          role="group" aria-label="Theme selection">
+          {options.map((o) => (
+            <button key={o.key} id={`theme-${o.key}`} onClick={() => setTheme(o.key)} title={o.label}
+              aria-pressed={mode === o.key}
+              className={`relative flex items-center justify-center w-8 h-7 rounded-lg text-xs font-medium transition-all duration-300 ease-out
+                ${mode === o.key
+                  ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                  : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'
+                }`}>
+              {o.icon}
+            </button>
+          ))}
+        </div>
+      );
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       8. FORM INPUT
+       ═══════════════════════════════════════════════════════ */
+    const FormInput = ({ id, label, value, onChange, type = 'number', step, min, suffix }) => (
+      <div className="space-y-1.5 min-w-0">
+        <label htmlFor={id} className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+          {label}
+        </label>
+        <div className="relative">
+          <input id={id} type={type} step={step || 'any'} min={min || '0'} value={value}
+            onChange={e => onChange(type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value)}
+            className="w-full max-w-full bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-600/70
+                       rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-slate-100
+                       focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400/70
+                       placeholder-slate-300 dark:placeholder-slate-600"
+            placeholder={`Enter ${label.toLowerCase()}`} />
+          {suffix && (
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 dark:text-slate-500 font-semibold pointer-events-none">
+              {suffix}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+
+    /* ═══════════════════════════════════════════════════════
+       9. MANUAL ADD PRODUCT MODAL (Block 4.2)
+       ═══════════════════════════════════════════════════════ */
+    const ManualAddModal = ({ isOpen, onClose, onSave }) => {
+      const [f, setF] = useState({ name: '', length: 0, width: 0, height: 0, unit: 'cm', packSize: 1, netWeight: 0, grossWeight: 0 });
+      const up = (k, v) => setF(p => ({ ...p, [k]: v }));
+      const canSave = f.name.trim() && f.length > 0 && f.width > 0 && f.height > 0;
+
+      const handleSave = () => {
+        const style = IMPORT_COLORS[Math.floor(Math.random() * IMPORT_COLORS.length)];
+        const icon = IMPORT_ICONS[Math.floor(Math.random() * IMPORT_ICONS.length)];
+        onSave({
+          id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          name: f.name.trim(), description: 'Manually added', icon, color: style.color, border: style.border,
+          unit: f.unit, length: f.length, width: f.width, height: f.height,
+          packSize: f.packSize || 1, netWeightPerUnit: f.netWeight, grossWeightPerShipper: f.grossWeight,
+        });
+        setF({ name: '', length: 0, width: 0, height: 0, unit: 'cm', packSize: 1, netWeight: 0, grossWeight: 0 });
+        onClose();
+      };
+
+      if (!isOpen) return null;
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 dark:bg-slate-950/70 backdrop-blur-sm wizard-backdrop" onClick={onClose} />
+          <div className="relative w-full max-w-md bg-white/95 dark:bg-slate-900/95 rounded-2xl shadow-2xl border border-slate-200/80 dark:border-slate-700/80 wizard-panel"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">➕ Add Product Manually</h2>
+              <button onClick={onClose} className="p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"><CloseIcon /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <FormInput id="manual-name" label="Product Name" type="text" value={f.name} onChange={v => up('name', v)} />
+              <div className="grid grid-cols-3 gap-2">
+                <FormInput id="manual-l" label="Length" value={f.length} onChange={v => up('length', v)} suffix={f.unit.slice(0, 2)} />
+                <FormInput id="manual-w" label="Width" value={f.width} onChange={v => up('width', v)} suffix={f.unit.slice(0, 2)} />
+                <FormInput id="manual-h" label="Height" value={f.height} onChange={v => up('height', v)} suffix={f.unit.slice(0, 2)} />
+              </div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {['cm', 'inches', 'feet', 'meters'].map(u => (
+                  <button key={u} type="button" onClick={() => up('unit', u)}
+                    className={`py-1.5 rounded-lg text-[10px] font-bold uppercase ${f.unit === u ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-600' : 'bg-slate-50 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-600'}`}>
+                    {u}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <FormInput id="manual-pack" label="Pack Size" value={f.packSize} onChange={v => up('packSize', v)} suffix="pcs" />
+                <FormInput id="manual-nw" label="Net Wt" value={f.netWeight} onChange={v => up('netWeight', v)} suffix="kg" />
+                <FormInput id="manual-gw" label="Gross Wt" value={f.grossWeight} onChange={v => up('grossWeight', v)} suffix="kg" />
+              </div>
+              <button onClick={handleSave} disabled={!canSave}
+                className={`w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 mt-2
+                  ${canSave ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:shadow-glow' : 'bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-600'}`}>
+                <CheckCircleIcon /> Save to Directory
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       10. IMPORT WIZARD — STEP INDICATOR
+       ═══════════════════════════════════════════════════════ */
+    const StepIndicator = ({ currentStep }) => {
+      const steps = [{ num: 1, label: 'Upload File' }, { num: 2, label: 'Map Columns' }, { num: 3, label: 'Preview & Import' }];
+      return (
+        <div className="flex items-center justify-center gap-1 mb-6">
+          {steps.map((s, idx) => (
+            <React.Fragment key={s.num}>
+              <div className="flex items-center gap-2">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold no-theme-transition
+                  ${currentStep > s.num
+                    ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 border-2 border-emerald-300 dark:border-emerald-700'
+                    : currentStep === s.num
+                      ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 border-2 border-indigo-400 shadow-glow'
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-500 border-2 border-slate-200 dark:border-slate-600'
+                  }`}>
+                  {currentStep > s.num ? <CheckCircleIcon /> : s.num}
+                </div>
+                <span className={`text-xs font-medium hidden sm:block
+                  ${currentStep >= s.num ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-600'}`}>
+                  {s.label}
+                </span>
+              </div>
+              {idx < steps.length - 1 && (
+                <div className={`w-8 h-0.5 mx-1 rounded
+                  ${currentStep > s.num ? 'bg-emerald-300 dark:bg-emerald-700' : 'bg-slate-200 dark:bg-slate-700'}`} />
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+      );
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       11. WIZARD STEP 1 — FILE UPLOAD
+       ═══════════════════════════════════════════════════════ */
+    const FileUploadStep = ({ onFileParsed }) => {
+      const [dragOver, setDragOver] = useState(false);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState(null);
+      const fileInputRef = useRef(null);
+
+      const handleFile = async (file) => {
+        setLoading(true); setError(null);
+        try {
+          const result = await parseFile(file);
+          onFileParsed({ ...result, fileName: file.name });
+        } catch (err) {
+          setError(err.message || 'Failed to parse file.');
+        } finally { setLoading(false); }
+      };
+
+      return (
+        <div className="fade-in">
+          <div id="file-drop-zone"
+            onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onClick={() => fileInputRef.current?.click()}
+            className={`relative border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer
+              ${dragOver
+                ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 scale-[1.01] drag-pulse'
+                : 'border-slate-300 dark:border-slate-600 bg-slate-50/80 dark:bg-slate-800/50 hover:border-indigo-300 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30'
+              }`}>
+            <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls"
+              onChange={e => { if (e.target.files[0]) handleFile(e.target.files[0]); }}
+              className="hidden" id="file-upload-input" />
+            {loading ? (
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-10 h-10 border-2 border-indigo-200 border-t-indigo-500 rounded-full spinner" />
+                <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">Parsing your file…</p>
+              </div>
+            ) : (
+              <>
+                <div className={`flex justify-center mb-4 ${dragOver ? 'text-indigo-500' : 'text-slate-400 dark:text-slate-500'}`}><UploadIcon /></div>
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">{dragOver ? 'Drop your file here' : 'Drag & drop your product catalog'}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">or <span className="text-indigo-500 underline underline-offset-2 font-semibold">browse files</span></p>
+                <div className="flex items-center justify-center gap-3 mt-5">
+                  {[['CSV', 'emerald'], ['XLSX', 'blue'], ['XLS', 'purple']].map(([ext, c]) => (
+                    <span key={ext} className={`px-2.5 py-1 rounded-md bg-${c}-50 dark:bg-${c}-950/50 border border-${c}-200 dark:border-${c}-800 text-[11px] font-bold text-${c}-700 dark:text-${c}-400`}>.{ext}</span>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          {error && (
+            <div className="mt-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center gap-2 fade-in">
+              <span className="text-rose-500 flex-shrink-0"><WarningIcon /></span>
+              <p className="text-sm text-rose-700 dark:text-rose-400">{error}</p>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       12. WIZARD STEP 2 — COLUMN MAPPING
+       ═══════════════════════════════════════════════════════ */
+    const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
+      const autoMap = useMemo(() => autoMapHeaders(headers), [headers]);
+      const [mapping, setMapping] = useState(() => ({
+        name: autoMap.mapping.name || '', length: autoMap.mapping.length || '',
+        width: autoMap.mapping.width || '', height: autoMap.mapping.height || '',
+        packSize: autoMap.mapping.packSize || '', netWeight: autoMap.mapping.netWeight || '',
+        grossWeight: autoMap.mapping.grossWeight || '',
+      }));
+      const [combinedDim, setCombinedDim] = useState(!!autoMap.combinedDimColumn);
+      const [dimColumn, setDimColumn] = useState(autoMap.combinedDimColumn || '');
+      const [delimiter, setDelimiter] = useState('x');
+      const [importUnit, setImportUnit] = useState('cm');
+
+      const dimPreview = useMemo(() => {
+        if (!combinedDim || !dimColumn || !rows[0]) return null;
+        const raw = String(rows[0][dimColumn] || '');
+        return { raw, parsed: parseDimensionString(raw, delimiter) };
+      }, [combinedDim, dimColumn, delimiter, rows]);
+
+      const canProceed = mapping.name && (combinedDim ? dimColumn : (mapping.length && mapping.width && mapping.height));
+
+      const handleNext = () => {
+        const dimConfig = { combined: combinedDim, column: combinedDim ? dimColumn : null, delimiter: combinedDim ? delimiter : null, unit: importUnit };
+        const finalMapping = { ...mapping };
+        if (combinedDim) { delete finalMapping.length; delete finalMapping.width; delete finalMapping.height; }
+        onMappingComplete({ mapping: finalMapping, dimConfig });
+      };
+
+      const selClass = (hasValue) =>
+        `w-full max-w-full bg-white/80 dark:bg-slate-800/80 border rounded-xl px-3 py-2.5 text-sm font-medium
+         text-slate-800 dark:text-slate-100
+         focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400/70
+         ${hasValue ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/30 dark:bg-emerald-950/20' : 'border-slate-200 dark:border-slate-600/70'}`;
+
+      const fields = [
+        { key: 'name', label: 'Product Name', required: true, icon: '🏷️' },
+        ...(!combinedDim ? [
+          { key: 'length', label: 'Length', required: true, icon: '📏' },
+          { key: 'width', label: 'Width', required: true, icon: '📐' },
+          { key: 'height', label: 'Height', required: true, icon: '📦' },
+        ] : []),
+        { key: 'packSize', label: 'Pack Size', required: false, icon: '📋' },
+        { key: 'netWeight', label: 'Net Weight', required: false, icon: '⚖️' },
+        { key: 'grossWeight', label: 'Gross Weight', required: false, icon: '🏋️' },
+      ];
+
+      return (
+        <div className="fade-in space-y-5">
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold flex-shrink-0">Columns found:</span>
+            <div className="flex flex-wrap gap-1.5">
+              {headers.map(h => (
+                <span key={h} className="text-[11px] bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 px-2 py-0.5 rounded-full font-medium truncate max-w-[120px]">{h}</span>
+              ))}
+            </div>
+          </div>
+
+          {/* Combined dimension toggle */}
+          <div className="p-4 rounded-xl bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50">
+            <label className="flex items-start gap-3 cursor-pointer select-none">
+              <div className="flex-shrink-0 mt-0.5" onClick={e => { e.preventDefault(); setCombinedDim(p => !p); }}>
+                <div className={`w-11 h-6 rounded-full relative ${combinedDim ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-600'}`}>
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow theme-pill ${combinedDim ? 'left-[22px]' : 'left-0.5'}`} />
+                </div>
+              </div>
+              <div className="min-w-0">
+                <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Dimensions combined in one column</span>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 break-words">Enable if your file uses values like "50x40x30" instead of separate L/W/H columns</p>
+              </div>
+            </label>
+            {combinedDim && (
+              <div className="mt-4 space-y-3 fade-in">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5 min-w-0">
+                    <label htmlFor="dim-column-select" className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Dimension Column</label>
+                    <select id="dim-column-select" value={dimColumn} onChange={e => setDimColumn(e.target.value)} className={selClass(!!dimColumn)}>
+                      <option value="">— Select —</option>
+                      {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5 min-w-0">
+                    <label htmlFor="delimiter-input" className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Delimiter</label>
+                    <input id="delimiter-input" type="text" value={delimiter} onChange={e => setDelimiter(e.target.value)} placeholder="x"
+                      className="w-full max-w-full bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-600/70 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
+                  </div>
+                </div>
+                {dimPreview && (
+                  <div className="p-3 rounded-lg bg-white/80 dark:bg-slate-800/60 border border-amber-200 dark:border-amber-800/50 fade-in overflow-x-auto">
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 font-bold">Parsing Preview (Row 1)</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-mono text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded truncate max-w-[160px]">"{dimPreview.raw}"</span>
+                      <span className="text-slate-400 text-base">→</span>
+                      {dimPreview.parsed
+                        ? <span className="text-xs font-mono text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded border border-emerald-200 dark:border-emerald-800 font-semibold whitespace-nowrap">L:{dimPreview.parsed.length} × W:{dimPreview.parsed.width} × H:{dimPreview.parsed.height}</span>
+                        : <span className="text-xs text-rose-600 dark:text-rose-400 flex items-center gap-1 font-medium"><WarningIcon /> Cannot parse — try a different delimiter</span>
+                      }
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Dimension unit selector */}
+          <div className="p-4 rounded-xl bg-sky-50/80 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800/50">
+            <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-3">📐 Dimension Unit in this file</p>
+            <div className="grid grid-cols-4 gap-2">
+              {['cm', 'inches', 'feet', 'meters'].map(u => (
+                <button key={u} type="button" onClick={() => setImportUnit(u)}
+                  className={`py-2 px-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide truncate
+                    ${importUnit === u
+                      ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-600'
+                      : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600 hover:border-slate-300'
+                    }`}>
+                  {u}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2">Select the unit your L/W/H values are measured in. Default is cm.</p>
+          </div>
+
+          {/* Mapping dropdowns */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {fields.map(field => (
+              <div key={field.key} className="space-y-1.5 min-w-0">
+                <label htmlFor={`map-${field.key}`} className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  <span>{field.icon}</span><span className="truncate">{field.label}</span>
+                  {field.required && <span className="text-rose-400 flex-shrink-0">*</span>}
+                </label>
+                <select id={`map-${field.key}`} value={mapping[field.key]} onChange={e => setMapping(p => ({ ...p, [field.key]: e.target.value }))} className={selClass(!!mapping[field.key])}>
+                  <option value="">— Select —</option>
+                  {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+
+          {/* Navigation */}
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
+            <button id="mapping-back-btn" onClick={onBack}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-600">
+              <ArrowLeftIcon /> Back
+            </button>
+            <button id="mapping-next-btn" onClick={handleNext} disabled={!canProceed}
+              className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold
+                ${canProceed ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white hover:from-indigo-500 hover:to-violet-500 hover:shadow-glow' : 'bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-600'}`}>
+              Preview Data <ArrowRightIcon />
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       13. WIZARD STEP 3 — PREVIEW & IMPORT
+       ═══════════════════════════════════════════════════════ */
+    const DataPreviewStep = ({ rows, mapping, dimConfig, existingProducts, onImport, onBack }) => {
+      const previewProducts = useMemo(() => applyMapping(rows.slice(0, 3), mapping, dimConfig), [rows, mapping, dimConfig]);
+      const allProducts = useMemo(() => applyMapping(rows, mapping, dimConfig), [rows, mapping, dimConfig]);
+      const mergeStats = useMemo(() => {
+        const { added, updated } = mergeProducts(existingProducts, allProducts);
+        return { added, updated };
+      }, [existingProducts, allProducts]);
+      const [importing, setImporting] = useState(false);
+      const skipped = rows.length - allProducts.length;
+      const handleImport = () => { setImporting(true); setTimeout(() => onImport(allProducts), 500); };
+
+      return (
+        <div className="fade-in space-y-5">
+          <div className="flex flex-wrap gap-2">
+            <div className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800">
+              <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">✓ {mergeStats.added} new</span>
+            </div>
+            {mergeStats.updated > 0 && (
+              <div className="px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800">
+                <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400">↻ {mergeStats.updated} updated</span>
+              </div>
+            )}
+            {skipped > 0 && (
+              <div className="px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                <span className="text-xs font-bold text-amber-700 dark:text-amber-400">⚠ {skipped} skipped</span>
+              </div>
+            )}
+            <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+              <span className="text-xs font-bold text-slate-600 dark:text-slate-400">{rows.length} total rows</span>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <div className="bg-gradient-to-r from-slate-50 to-indigo-50/30 dark:from-slate-800 dark:to-indigo-950/20 px-4 py-2.5 border-b border-slate-200 dark:border-slate-700">
+              <p className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Preview — First 3 Rows</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[480px]">
+                <thead>
+                  <tr className="bg-slate-50/60 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700">
+                    {['Name', 'L', 'W', 'H', 'Pack', 'Net Wt', 'Gross Wt', 'CBM'].map((h, i) => (
+                      <th key={h} className={`${i === 0 ? 'text-left px-4' : 'text-right px-3'} py-2.5 text-[11px] font-bold ${i === 7 ? 'text-indigo-500 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'} uppercase tracking-wider`}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewProducts.length === 0 ? (
+                    <tr><td colSpan={8} className="px-4 py-10 text-center">
+                      <div className="flex flex-col items-center gap-2 text-slate-400"><WarningIcon /><p className="text-sm font-medium">No valid products found</p><p className="text-xs">Go back and check your column mappings</p></div>
+                    </td></tr>
+                  ) : previewProducts.map((p, i) => (
+                    <tr key={i} className="border-t border-slate-100 dark:border-slate-700/60 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20">
+                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200 max-w-[140px] truncate" title={p.name}>{p.name}</td>
+                      {[p.length, p.width, p.height, p.packSize, p.netWeightPerUnit, p.grossWeightPerShipper].map((v, j) => (
+                        <td key={j} className="px-3 py-3 text-right font-mono text-slate-600 dark:text-slate-400 text-xs">{v}</td>
+                      ))}
+                      <td className="px-4 py-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs">{calcCBM(p.length, p.width, p.height, p.unit || 'cm').toFixed(4)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
+            <button id="preview-back-btn" onClick={onBack}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-600">
+              <ArrowLeftIcon /> Back
+            </button>
+            <button id="import-catalog-btn" onClick={handleImport} disabled={allProducts.length === 0 || importing}
+              className={`flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold
+                ${allProducts.length > 0 && !importing
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 hover:shadow-glow'
+                  : 'bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-600'
+                }`}>
+              {importing
+                ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full spinner" /> Importing…</>
+                : <><CheckCircleIcon /> Import {allProducts.length} Products</>
+              }
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       14. IMPORT WIZARD MODAL
+       ═══════════════════════════════════════════════════════ */
+    const ImportWizardModal = ({ isOpen, onClose, onImport, existingProducts }) => {
+      const [step, setStep] = useState(1);
+      const [fileData, setFileData] = useState(null);
+      const [mappingConfig, setMappingConfig] = useState(null);
+      const handleClose = () => { setStep(1); setFileData(null); setMappingConfig(null); onClose(); };
+      const handleImport = (products) => { onImport(products); handleClose(); };
+      if (!isOpen) return null;
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
+          <div className="absolute inset-0 bg-slate-900/50 dark:bg-slate-950/70 backdrop-blur-sm wizard-backdrop" onClick={handleClose} />
+          <div className="relative w-full sm:max-w-2xl bg-white/90 dark:bg-slate-900/95 rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200/80 dark:border-slate-700/80 overflow-hidden wizard-panel max-h-[95vh] flex flex-col"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-slate-50 to-indigo-50/40 dark:from-slate-800/80 dark:to-indigo-950/30 flex-shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-700 flex items-center justify-center text-indigo-600 dark:text-indigo-400 flex-shrink-0"><FileDocIcon /></div>
+                <div className="min-w-0">
+                  <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Import Product Catalog</h2>
+                  {fileData && <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">📄 {fileData.fileName} · {fileData.rows.length} rows · {fileData.headers.length} cols</p>}
+                </div>
+              </div>
+              <button id="wizard-close-btn" onClick={handleClose} title="Close"
+                className="flex-shrink-0 p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"><CloseIcon /></button>
+            </div>
+            <div className="px-5 sm:px-6 pt-5 flex-shrink-0"><StepIndicator currentStep={step} /></div>
+            <div className="px-5 sm:px-6 pb-6 overflow-y-auto flex-1">
+              {step === 1 && <FileUploadStep onFileParsed={d => { setFileData(d); setStep(2); }} />}
+              {step === 2 && fileData && (
+                <ColumnMappingStep headers={fileData.headers} rows={fileData.rows}
+                  onMappingComplete={cfg => { setMappingConfig(cfg); setStep(3); }}
+                  onBack={() => { setStep(1); setFileData(null); }} />
+              )}
+              {step === 3 && fileData && mappingConfig && (
+                <DataPreviewStep rows={fileData.rows} mapping={mappingConfig.mapping} dimConfig={mappingConfig.dimConfig}
+                  existingProducts={existingProducts} onImport={handleImport} onBack={() => setStep(2)} />
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       15. MAIN APP
+       ═══════════════════════════════════════════════════════ */
+    function App() {
+      const { mode, isDark, setTheme } = useTheme();
+
+      // Product directory — persisted in localStorage
+      const [products, setProducts] = useState(() => {
+        try { const s = localStorage.getItem('cbm-products'); return s ? JSON.parse(s) : []; }
+        catch { return []; }
+      });
+      useEffect(() => {
+        try { localStorage.setItem('cbm-products', JSON.stringify(products)); }
+        catch { /* storage full */ }
+      }, [products]);
+
+      // Import modal + Manual add modal
+      const [importOpen, setImportOpen] = useState(false);
+      const [manualAddOpen, setManualAddOpen] = useState(false);
+      const [importResult, setImportResult] = useState(null);
+
+      // Product directory search (Block 4.1)
+      const [productSearch, setProductSearch] = useState('');
+      const filteredProducts = useMemo(() => {
+        if (!productSearch.trim()) return products;
+        const q = productSearch.trim().toLowerCase();
+        return products.filter(p => p.name.toLowerCase().includes(q));
+      }, [products, productSearch]);
+
+      // CBM form
+      const emptyForm = { unit: 'cm', length: 0, width: 0, height: 0, packSize: 1, netWeight: 0, grossWeight: 0, name: '', totalPcs: 0 };
+      const [form, setForm] = useState({ ...emptyForm });
+      const [shipment, setShipment] = useState(() => {
+        try { const s = localStorage.getItem('cbm-shipment'); return s ? JSON.parse(s) : []; }
+        catch { return []; }
+      });
+      useEffect(() => {
+        try { localStorage.setItem('cbm-shipment', JSON.stringify(shipment)); }
+        catch { /* storage full */ }
+      }, [shipment]);
+
+      const [activeProductId, setActiveProductId] = useState(null);
+      const [flashId, setFlashId] = useState(null);
+
+      // Block 1: PO Number, Container Type, Freight Mode
+      const [poNumber, setPoNumber] = useState('');
+      const [containerType, setContainerType] = useState('40hc');
+      const [freightMode, setFreightMode] = useState('ocean'); // 'ocean' | 'air'
+
+      const prevUnitRef = useRef(form.unit);
+      const [unitSwitchWarning, setUnitSwitchWarning] = useState(false);
+
+      const updateForm = useCallback((field, value) => {
+        if (field === 'unit') {
+          setForm(p => {
+            const hasDims = p.length > 0 || p.width > 0 || p.height > 0;
+            if (hasDims && value !== p.unit) setUnitSwitchWarning(true);
+            else setUnitSwitchWarning(false);
+            return { ...p, [field]: value };
+          });
+        } else {
+          setForm(p => ({ ...p, [field]: value }));
+        }
+      }, []);
+
+      /* ── Smart de-duplicating import handler ── */
+      const handleImportComplete = useCallback((incoming) => {
+        setProducts(prev => {
+          const { nextProducts, added, updated } = mergeProducts(prev, incoming);
+          setImportResult({ added, updated });
+          setTimeout(() => setImportResult(null), 4000);
+          return nextProducts;
+        });
+        setImportOpen(false);
+      }, []);
+
+      /* ── Manual add handler ── */
+      const handleManualAdd = useCallback((product) => {
+        setProducts(prev => {
+          const { nextProducts, added, updated } = mergeProducts(prev, [product]);
+          return nextProducts;
+        });
+      }, []);
+
+      const handleProductClick = useCallback((product) => {
+        setActiveProductId(product.id);
+        setForm({
+          unit: product.unit, length: product.length, width: product.width, height: product.height,
+          packSize: product.packSize, netWeight: product.netWeightPerUnit,
+          grossWeight: product.grossWeightPerShipper, name: product.name, totalPcs: 0,
+        });
+      }, []);
+
+      const handleAddToShipment = useCallback(() => {
+        if (form.length <= 0 || form.width <= 0 || form.height <= 0) return;
+        const cbmPerShipper = calcCBM(form.length, form.width, form.height, form.unit);
+        const derivedShippers = (form.totalPcs > 0 && form.packSize > 0)
+          ? Math.ceil(form.totalPcs / form.packSize) : 1;
+        const newItem = {
+          id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          name: form.name || 'Custom Item',
+          unit: form.unit, length: form.length, width: form.width, height: form.height,
+          packSize: form.packSize, netWeightPerUnit: form.netWeight,
+          grossWeightPerShipper: form.grossWeight, cbmPerShipper, quantity: derivedShippers,
+        };
+        setShipment(p => [...p, newItem]);
+        setFlashId(newItem.id);
+        setTimeout(() => setFlashId(null), 800);
+        setForm({ ...emptyForm });
+        setActiveProductId(null);
+        setUnitSwitchWarning(false);
+      }, [form]);
+
+      const handleRemove = useCallback((id) => setShipment(p => p.filter(i => i.id !== id)), []);
+      const handleQuantityChange = useCallback((id, qty) =>
+        setShipment(p => p.map(i => i.id === id ? { ...i, quantity: Math.max(1, qty) } : i)), []);
+
+      // Block 3.1: Edit item — populate form and remove from shipment
+      const handleEditItem = useCallback((item) => {
+        setForm({
+          unit: item.unit, length: item.length, width: item.width, height: item.height,
+          packSize: item.packSize, netWeight: item.netWeightPerUnit,
+          grossWeight: item.grossWeightPerShipper, name: item.name, totalPcs: 0,
+        });
+        setShipment(p => p.filter(i => i.id !== item.id));
+        setActiveProductId(null);
+      }, []);
+
+      // Block 3.2: Duplicate item
+      const handleDuplicateItem = useCallback((item) => {
+        const dup = { ...item, id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}` };
+        setShipment(p => [...p, dup]);
+        setFlashId(dup.id);
+        setTimeout(() => setFlashId(null), 800);
+      }, []);
+
+      const totals = useMemo(() =>
+        shipment.reduce((acc, item) => ({
+          cbm: acc.cbm + item.cbmPerShipper * item.quantity,
+          grossWeight: acc.grossWeight + item.grossWeightPerShipper * item.quantity,
+          netWeight: acc.netWeight + item.netWeightPerUnit * item.packSize * item.quantity,
+          shippers: acc.shippers + item.quantity,
+          totalPcs: acc.totalPcs + item.packSize * item.quantity,
+        }), { cbm: 0, grossWeight: 0, netWeight: 0, shippers: 0, totalPcs: 0 }), [shipment]);
+
+      // Block 2: Volumetric / Chargeable weight
+      const volumetricWeight = useMemo(() => {
+        if (freightMode === 'air') return totals.cbm * 167;
+        return totals.cbm * 1000; // ocean: 1 CBM = 1000 kg
+      }, [totals.cbm, freightMode]);
+
+      const chargeableWeight = useMemo(() =>
+        Math.max(totals.grossWeight, volumetricWeight),
+        [totals.grossWeight, volumetricWeight]);
+
+      // Container utilization
+      const containerPct = useMemo(() => {
+        const cap = CONTAINERS[containerType]?.cbm || 76;
+        return Math.min(100, (totals.cbm / cap) * 100);
+      }, [totals.cbm, containerType]);
+
+      const previewCBM = useMemo(() =>
+        (form.length > 0 && form.width > 0 && form.height > 0)
+          ? calcCBM(form.length, form.width, form.height, form.unit) : 0,
+        [form.length, form.width, form.height, form.unit]);
+
+      const canAdd = form.length > 0 && form.width > 0 && form.height > 0;
+
+      const panelCls = "glass rounded-2xl shadow-card dark:shadow-card-dark";
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-indigo-50/60 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/30">
+
+          {/* ── Ambient orbs ── */}
+          <div aria-hidden="true">
+            <div className="orb w-96 h-96 -top-40 -left-32 bg-indigo-300/20 dark:bg-indigo-700/10" />
+            <div className="orb w-80 h-80 top-1/3 -right-20 bg-purple-300/15 dark:bg-purple-700/10" />
+            <div className="orb w-64 h-64 bottom-0 left-1/3 bg-cyan-300/10 dark:bg-cyan-700/8" />
+          </div>
+
+          {/* ── Import result toast ── */}
+          {importResult && (
+            <div className="fixed top-4 right-4 z-[60] fade-in">
+              <div className="bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-700 rounded-xl px-4 py-3 shadow-lg flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 flex-shrink-0"><CheckCircleIcon /></div>
+                <div>
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Import complete!</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {importResult.added > 0 && `${importResult.added} added`}
+                    {importResult.added > 0 && importResult.updated > 0 && ' · '}
+                    {importResult.updated > 0 && `${importResult.updated} updated`}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="relative z-10 max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+            {/* ── HEADER ── */}
+            <header className="mb-6 sm:mb-8">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2 bg-indigo-100 dark:bg-indigo-900/60 rounded-xl border border-indigo-200 dark:border-indigo-700 flex-shrink-0"><BoxIcon /></div>
+                  <div className="min-w-0">
+                    <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold shimmer-text tracking-tight truncate">CBM Calculator</h1>
+                    <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-0.5 hidden sm:block">Shipping volume & weight management dashboard</p>
+                  </div>
+                </div>
+                <ThemeToggle mode={mode} setTheme={setTheme} />
+              </div>
+            </header>
+
+            {/* ── MAIN GRID ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6">
+
+              {/* ════ LEFT: Custom CBM Form ════ */}
+              <section className="lg:col-span-3 fade-in" style={{ animationDelay: '0.05s' }}>
+                <div className={`${panelCls} p-5`}>
+                  <div className="flex items-center gap-2 mb-5">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/60 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-4 h-4 text-indigo-600 dark:text-indigo-400 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                    </div>
+                    <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 truncate">Custom CBM Entry</h2>
+                  </div>
+
+                  <div className="mb-4"><FormInput id="item-name" label="Item Name" type="text" value={form.name} onChange={v => updateForm('name', v)} /></div>
+
+                  <div className="mb-4 space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Unit</label>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {['cm', 'inches', 'feet', 'meters'].map(u => (
+                        <button key={u} id={`unit-${u}`} onClick={() => updateForm('unit', u)}
+                          className={`py-2 px-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide max-w-full truncate
+                            ${form.unit === u
+                              ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-600 shadow-glow'
+                              : 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500'
+                            }`}>
+                          {u}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {unitSwitchWarning && (
+                    <div className="mb-3 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 flex items-start gap-2 fade-in">
+                      <span className="text-amber-500 flex-shrink-0 mt-0.5"><WarningIcon /></span>
+                      <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">Values not converted — existing dimensions are now treated as <strong>{form.unit}</strong>.</p>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-3 gap-2 mb-4">
+                    <FormInput id="dim-length" label="L" value={form.length} onChange={v => updateForm('length', v)} suffix={form.unit.slice(0, 2)} />
+                    <FormInput id="dim-width" label="W" value={form.width} onChange={v => updateForm('width', v)} suffix={form.unit.slice(0, 2)} />
+                    <FormInput id="dim-height" label="H" value={form.height} onChange={v => updateForm('height', v)} suffix={form.unit.slice(0, 2)} />
+                  </div>
+
+                  <div className="mb-4 space-y-2">
+                    <FormInput id="pack-size" label="Pack Size (pcs/shipper)" value={form.packSize} onChange={v => updateForm('packSize', v)} min="1" step="1" suffix="pcs" />
+                    <FormInput id="total-pcs" label="Total Pcs (optional)" value={form.totalPcs || ''} onChange={v => updateForm('totalPcs', v)} min="0" step="1" suffix="pcs" />
+                    {form.totalPcs > 0 && form.packSize > 0 && (
+                      <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-700 fade-in">
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">{form.totalPcs} ÷ {form.packSize}</span>
+                        <span className="text-sm font-bold font-mono text-emerald-600 dark:text-emerald-400">= {Math.ceil(form.totalPcs / form.packSize)} shippers</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 mb-5">
+                    <FormInput id="net-weight" label="Net Wt/Unit" value={form.netWeight} onChange={v => updateForm('netWeight', v)} suffix="kg" />
+                    <FormInput id="gross-weight" label="Gross Wt/Shipper" value={form.grossWeight} onChange={v => updateForm('grossWeight', v)} suffix="kg" />
+                  </div>
+
+                  {previewCBM > 0 && (
+                    <div className="mb-4 p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-800 fade-in">
+                      <div className="flex justify-between items-center gap-2">
+                        <span className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">Volume Preview</span>
+                        <span className="text-base font-bold font-mono text-indigo-600 dark:text-indigo-400 tabular-nums">{previewCBM.toFixed(6)} m³</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <button id="add-to-shipment-btn" onClick={handleAddToShipment} disabled={!canAdd}
+                    className={`w-full max-w-full py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2
+                      ${canAdd
+                        ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white hover:from-indigo-500 hover:to-violet-500 hover:shadow-glow active:scale-[0.98]'
+                        : 'bg-slate-100 dark:bg-slate-700/50 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-200 dark:border-slate-600'
+                      }`}>
+                    <PlusIcon /> Add to Shipment
+                  </button>
+                </div>
+              </section>
+
+              {/* ════ MIDDLE: Active Shipment ════ */}
+              <section className="lg:col-span-6 fade-in" style={{ animationDelay: '0.12s' }}>
+                <div className={`${panelCls} p-5 flex flex-col`}>
+
+                  {/* Header row with PO input + export buttons */}
+                  <div className="flex items-center justify-between mb-3 flex-shrink-0 gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 flex-shrink-0"><TruckIcon /></div>
+                      <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 truncate">Active Shipment</h2>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                      {shipment.length > 0 && (
+                        <>
+                          <button id="export-excel-btn" onClick={() => exportExcel(shipment, totals, poNumber)} title="Export Excel"
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/30">
+                            <ExcelIcon /> Excel
+                          </button>
+                          <button id="export-pdf-btn" onClick={() => exportPDF(shipment, totals, poNumber, containerType, freightMode)} title="Export PDF"
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/30">
+                            <PdfIcon /> PDF
+                          </button>
+                          <button onClick={() => { if (window.confirm('Clear all shipment items?')) setShipment([]); }} title="Clear all"
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700">
+                            <TrashIcon /> Clear
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* PO / Reference Number (Block 1.1) */}
+                  <div className="mb-4">
+                    <input id="po-number" type="text" value={poNumber} onChange={e => setPoNumber(e.target.value)}
+                      placeholder="Shipment Reference / PO Number"
+                      className="w-full bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-600/70 rounded-xl px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
+                  </div>
+
+                  {/* Items list */}
+                  <div className="flex-1 space-y-3 overflow-y-auto max-h-[320px] lg:max-h-[360px] pr-1">
+                    {shipment.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full text-center py-12">
+                        <div className="w-16 h-16 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center mb-4 text-slate-400 dark:text-slate-600"><BoxIcon /></div>
+                        <p className="text-slate-500 dark:text-slate-400 text-sm font-semibold">No items in shipment</p>
+                        <p className="text-slate-400 dark:text-slate-600 text-xs mt-1">Add items from the form or product directory</p>
+                      </div>
+                    ) : (
+                      shipment.map((item, idx) => {
+                        const totalCBM = item.cbmPerShipper * item.quantity;
+                        const totalWeight = item.grossWeightPerShipper * item.quantity;
+                        const totalPcs = item.packSize * item.quantity;
+                        const isFlashing = flashId === item.id;
+                        return (
+                          <div key={item.id} className={`group rounded-xl border
+                            ${isFlashing ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-700 shadow-glow' : 'bg-white/60 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'}`}>
+                            <div className="p-4">
+                              <div className="flex items-start justify-between gap-2 mb-3">
+                                <div className="min-w-0">
+                                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{item.name}</h3>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                                    {item.length}×{item.width}×{item.height} {item.unit} · {item.packSize} pcs/shipper
+                                  </p>
+                                </div>
+                                {/* Action icons: Edit, Copy, Delete (Block 3) */}
+                                <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100">
+                                  <button id={`edit-item-${idx}`} onClick={() => handleEditItem(item)} title="Edit"
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"><EditIcon /></button>
+                                  <button id={`dup-item-${idx}`} onClick={() => handleDuplicateItem(item)} title="Duplicate"
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-teal-500 hover:bg-teal-50 dark:hover:bg-teal-950/30"><CopyIcon /></button>
+                                  <button id={`remove-item-${idx}`} onClick={() => handleRemove(item.id)} title="Remove"
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30"><TrashIcon /></button>
+                                </div>
+                              </div>
+
+                              <div className="overflow-x-auto">
+                                <div className="flex items-center justify-between min-w-[260px] gap-3">
+                                  <div className="flex items-center gap-4">
+                                    <div className="text-center">
+                                      <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">CBM/ship</p>
+                                      <p className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">{item.cbmPerShipper.toFixed(4)}</p>
+                                    </div>
+                                    <div className="text-center">
+                                      <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">Total CBM</p>
+                                      <p className="text-sm font-mono font-bold text-indigo-600 dark:text-indigo-400">{totalCBM.toFixed(4)}</p>
+                                    </div>
+                                    <div className="text-center">
+                                      <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">Wt</p>
+                                      <p className="text-sm font-mono font-bold text-amber-600 dark:text-amber-400">{totalWeight.toFixed(1)}</p>
+                                    </div>
+                                    {item.packSize > 1 && (
+                                      <div className="text-center">
+                                        <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">Pcs</p>
+                                        <p className="text-sm font-mono font-bold text-violet-600 dark:text-violet-400">{totalPcs.toLocaleString()}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    <button id={`qty-dec-${idx}`} onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
+                                      className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 flex items-center justify-center text-base font-bold">−</button>
+                                    <input id={`qty-input-${idx}`} type="number" min="1" value={item.quantity}
+                                      onChange={e => handleQuantityChange(item.id, parseInt(e.target.value) || 1)}
+                                      className="w-12 h-8 text-center bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40" />
+                                    <button id={`qty-inc-${idx}`} onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
+                                      className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 flex items-center justify-center text-base font-bold">+</button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Grand totals + Container + Freight (Blocks 1 & 2) */}
+                  {shipment.length > 0 && (
+                    <div className="mt-5 pt-5 border-t border-slate-200 dark:border-slate-700 flex-shrink-0 space-y-4">
+                      {/* 4 totals row */}
+                      <div className="grid grid-cols-4 gap-2">
+                        {[
+                          { label: 'Total CBM', value: totals.cbm.toFixed(4), color: 'indigo', icon: <BoxIcon /> },
+                          { label: 'Gross Wt', value: totals.grossWeight.toFixed(1) + ' kg', color: 'amber', icon: <ScaleIcon /> },
+                          { label: 'Net Wt', value: totals.netWeight.toFixed(1) + ' kg', color: 'cyan', icon: <ScaleIcon /> },
+                          { label: 'Shippers', value: totals.shippers, color: 'emerald', icon: <TruckIcon /> },
+                        ].map(t => (
+                          <div key={t.label} className={`rounded-xl bg-gradient-to-br from-${t.color}-50 to-${t.color}-100/50 dark:from-${t.color}-950/40 dark:to-${t.color}-900/20 border border-${t.color}-200 dark:border-${t.color}-800/50 p-2.5 text-center pulse-glow`}>
+                            <div className={`flex items-center justify-center gap-1 mb-1 text-${t.color}-500 dark:text-${t.color}-400`}>
+                              {t.icon}
+                              <p className="text-[8px] uppercase tracking-widest font-bold hidden sm:block">{t.label}</p>
+                            </div>
+                            <p className={`text-xs sm:text-base font-bold font-mono text-${t.color}-600 dark:text-${t.color}-400 tabular-nums truncate`}>{t.value}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Container utilization (Block 1.2) */}
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                        <div className="flex items-center justify-between mb-2 gap-2">
+                          <span className="text-[10px] uppercase tracking-widest font-bold text-slate-500 dark:text-slate-400">Container Fill</span>
+                          <select id="container-select" value={containerType} onChange={e => setContainerType(e.target.value)}
+                            className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50">
+                            {Object.entries(CONTAINERS).map(([k, v]) => <option key={k} value={k}>{v.label} ({v.cbm} m³)</option>)}
+                          </select>
+                        </div>
+                        <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-4 overflow-hidden">
+                          <div className={`bar-fill h-full rounded-full ${containerPct > 95 ? 'bg-gradient-to-r from-rose-500 to-red-500' : containerPct > 75 ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-gradient-to-r from-indigo-500 to-violet-500'}`}
+                            style={{ width: `${containerPct}%` }} />
+                        </div>
+                        <div className="flex justify-between mt-1.5">
+                          <span className="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400">{totals.cbm.toFixed(2)} / {CONTAINERS[containerType].cbm} m³</span>
+                          <span className={`text-[11px] font-mono font-bold ${containerPct > 95 ? 'text-rose-600 dark:text-rose-400' : 'text-indigo-600 dark:text-indigo-400'}`}>{containerPct.toFixed(1)}%</span>
+                        </div>
+                      </div>
+
+                      {/* Freight Mode + Chargeable Weight (Block 2.1) */}
+                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                        <div className="flex items-center justify-between mb-2 gap-2">
+                          <span className="text-[10px] uppercase tracking-widest font-bold text-slate-500 dark:text-slate-400">Freight Mode</span>
+                          <div className="flex items-center bg-slate-200 dark:bg-slate-700 rounded-lg p-0.5">
+                            {['ocean', 'air'].map(m => (
+                              <button key={m} onClick={() => setFreightMode(m)}
+                                className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase ${freightMode === m
+                                  ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-300 shadow-sm'
+                                  : 'text-slate-500 dark:text-slate-400'}`}>
+                                {m === 'ocean' ? '🚢 Ocean' : '✈️ Air'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div>
+                            <p className="text-[9px] text-slate-500 dark:text-slate-400 uppercase mb-0.5">Volumetric</p>
+                            <p className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{volumetricWeight.toFixed(1)} kg</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] text-slate-500 dark:text-slate-400 uppercase mb-0.5">Gross</p>
+                            <p className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{totals.grossWeight.toFixed(1)} kg</p>
+                          </div>
+                          <div className="bg-indigo-50 dark:bg-indigo-950/40 rounded-lg p-1.5 border border-indigo-200 dark:border-indigo-800">
+                            <p className="text-[9px] text-indigo-600 dark:text-indigo-400 uppercase mb-0.5 font-bold">Chargeable</p>
+                            <p className="text-sm font-mono font-bold text-indigo-700 dark:text-indigo-300">{chargeableWeight.toFixed(1)} kg</p>
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2 text-center">
+                          {freightMode === 'air' ? 'Air: 1 CBM = 167 kg' : 'Ocean: 1 CBM = 1,000 kg'} · Chargeable = max(Gross, Volumetric)
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* ════ RIGHT: Product Directory ════ */}
+              <section className="lg:col-span-3 fade-in" style={{ animationDelay: '0.22s' }}>
+                <div className={`${panelCls} p-5`}>
+                  <div className="flex items-center justify-between mb-3 gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-violet-100 dark:bg-violet-900/50 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-4 h-4 text-violet-600 dark:text-violet-400 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+                      </div>
+                      <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 truncate">Product Directory</h2>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <button id="manual-add-btn" onClick={() => setManualAddOpen(true)} title="Add manually"
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/30">
+                        ➕ Add
+                      </button>
+                      <button id="import-data-btn" onClick={() => setImportOpen(true)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-indigo-600 to-violet-600 text-white hover:from-indigo-500 hover:to-violet-500 hover:shadow-glow active:scale-[0.96]">
+                        <ImportIcon /> Import
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Search/Filter (Block 4.1) */}
+                  {products.length > 0 && (
+                    <div className="relative mb-3 sticky top-0 z-10">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"><SearchIcon /></span>
+                      <input id="product-search" type="text" value={productSearch} onChange={e => setProductSearch(e.target.value)}
+                        placeholder="Search products…"
+                        className="w-full pl-9 pr-3 py-2 bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-600/70 rounded-xl text-sm font-medium text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
+                    </div>
+                  )}
+
+                  {products.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <div className="w-14 h-14 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-600 flex items-center justify-center mb-4 text-slate-300 dark:text-slate-600">
+                        <svg className="w-7 h-7 no-theme-transition" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">No products yet</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-600 mt-1 max-w-[160px] break-words">
+                        Click <strong>Import</strong> or <strong>Add</strong> to build your catalog
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">Click any product to auto-fill the calculator.</p>
+                      <div className="space-y-2 max-h-[450px] overflow-y-auto pr-1">
+                        {filteredProducts.length === 0 ? (
+                          <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-6">No products matching "{productSearch}"</p>
+                        ) : filteredProducts.map(product => {
+                          const isActive = activeProductId === product.id;
+                          return (
+                            <button key={product.id} id={`product-${product.id}`}
+                              onClick={() => handleProductClick(product)}
+                              className={`w-full max-w-full text-left rounded-xl p-3.5 group/card
+                                ${isActive
+                                  ? `bg-gradient-to-r ${product.color} dark:from-indigo-950/60 dark:to-violet-950/40 border ${product.border} dark:border-indigo-700/60 shadow-glow`
+                                  : 'bg-white/60 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-white/80 dark:hover:bg-slate-800/80'
+                                }`}>
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <span className="text-xl flex-shrink-0">{product.icon}</span>
+                                  <div className="min-w-0">
+                                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">{product.name}</h3>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">{product.length}×{product.width}×{product.height} {product.unit}</p>
+                                  </div>
+                                </div>
+                                <span className="text-slate-400 dark:text-slate-500 flex-shrink-0"><ChevronIcon /></span>
+                              </div>
+                              {isActive && (
+                                <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+                                  <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+                                    {[
+                                      ['Pack', `${product.packSize} pcs`],
+                                      ['Net Wt', `${product.netWeightPerUnit} kg`],
+                                      ['Gross', `${product.grossWeightPerShipper} kg`],
+                                      ['Unit', product.unit.toUpperCase()],
+                                    ].map(([k, v]) => (
+                                      <div key={k} className="flex justify-between gap-1">
+                                        <span className="text-slate-500 dark:text-slate-400 flex-shrink-0">{k}</span>
+                                        <span className="text-slate-700 dark:text-slate-300 font-mono truncate">{v}</span>
+                                      </div>
+                                    ))}
+                                    <div className="flex justify-between col-span-2 gap-1">
+                                      <span className="text-slate-500 dark:text-slate-400 flex-shrink-0">CBM</span>
+                                      <span className="text-indigo-600 dark:text-indigo-400 font-mono font-bold truncate">
+                                        {calcCBM(product.length, product.width, product.height, product.unit).toFixed(6)} m³
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+
+                  <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700">
+                    <p className="text-[11px] text-slate-400 dark:text-slate-600 text-center">
+                      {products.length} product{products.length !== 1 ? 's' : ''} in directory
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+            </div>
+
+            <footer className="mt-8 text-center text-xs text-slate-400 dark:text-slate-600 pb-6">
+              CBM Calculator Dashboard &nbsp;·&nbsp; Volume in m³ &nbsp;·&nbsp; Weight in kg
+            </footer>
+          </div>
+
+          {/* ── Modals ── */}
+          <ImportWizardModal isOpen={importOpen} onClose={() => setImportOpen(false)} onImport={handleImportComplete} existingProducts={products} />
+          <ManualAddModal isOpen={manualAddOpen} onClose={() => setManualAddOpen(false)} onSave={handleManualAdd} />
+        </div>
+      );
+    }
+
+    /* ── Mount ── */
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+
+</html>
