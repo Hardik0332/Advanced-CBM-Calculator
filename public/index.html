@@ -407,10 +407,17 @@
               const ws = wb.Sheets[sheetName];
               // Read everything as raw arrays to handle blank header rows
               const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-              // Find first row that actually has content — skip blank leading rows
-              const headerRowIdx = allRows.findIndex(row =>
-                row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== '')
-              );
+              // Smart header detection: scan first 20 rows and pick the one
+              // with the most non-empty string cells — this skips title/banner rows.
+              const scanLimit = Math.min(20, allRows.length);
+              let headerRowIdx = -1;
+              let bestCount = 0;
+              for (let ri = 0; ri < scanLimit; ri++) {
+                const count = allRows[ri].filter(
+                  cell => cell !== null && cell !== undefined && String(cell).trim() !== ''
+                ).length;
+                if (count > bestCount) { bestCount = count; headerRowIdx = ri; }
+              }
               if (headerRowIdx === -1) return { headers: [], rows: [] };
               const headerRow = allRows[headerRowIdx].map(h => String(h ?? '').trim());
               // All rows after the header that have at least one non-empty cell
@@ -1201,33 +1208,52 @@
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleRows.length === 0 ? (
-                    <tr><td colSpan={8} className="px-4 py-10 text-center">
-                      <div className="flex flex-col items-center gap-2 text-slate-400"><WarningIcon /><p className="text-sm font-medium">No rows in this category</p></div>
-                    </td></tr>
-                  ) : visibleRows.map((p, i) => {
-                    const isSkipped = p.status === 'skipped';
-                    const cbm = (!isSkipped && p.length > 0 && p.width > 0 && p.height > 0)
-                      ? calcCBM(p.length, p.width, p.height, p.unit || 'cm').toFixed(4)
-                      : 'N/A';
+                  {(() => {
+                    const previewLimit = 100;
+                    if (visibleRows.length === 0) {
+                      return (
+                        <tr><td colSpan={8} className="px-4 py-10 text-center">
+                          <div className="flex flex-col items-center gap-2 text-slate-400"><WarningIcon /><p className="text-sm font-medium">No rows in this category</p></div>
+                        </td></tr>
+                      );
+                    }
                     return (
-                      <tr key={i} className={`border-t border-slate-100 dark:border-slate-700/60
-                        ${isSkipped
-                          ? 'bg-amber-50/40 dark:bg-amber-950/10 opacity-70'
-                          : 'hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20'}`}>
-                        <td className="px-4 py-2.5 font-semibold text-slate-800 dark:text-slate-200 max-w-[180px]">
-                          <div className="flex items-center flex-wrap gap-y-0.5">
-                            <span className="truncate" title={p.name}>{p.name}</span>
-                            {rowStatusBadge(p)}
-                          </div>
-                        </td>
-                        {[p.length || 'N/A', p.width || 'N/A', p.height || 'N/A', p.packSize, p.netWeightPerUnit, p.grossWeightPerShipper].map((v, j) => (
-                          <td key={j} className={`px-3 py-2.5 text-right font-mono text-xs ${isSkipped ? 'text-slate-400 dark:text-slate-600' : 'text-slate-600 dark:text-slate-400'}`}>{v}</td>
-                        ))}
-                        <td className={`px-4 py-2.5 text-right font-mono font-bold text-xs ${isSkipped ? 'text-slate-400 dark:text-slate-600' : 'text-indigo-600 dark:text-indigo-400'}`}>{cbm}</td>
-                      </tr>
+                      <>
+                        {visibleRows.slice(0, previewLimit).map((p, i) => {
+                          const isSkipped = p.status === 'skipped';
+                          const cbm = (!isSkipped && p.length > 0 && p.width > 0 && p.height > 0)
+                            ? calcCBM(p.length, p.width, p.height, p.unit || 'cm').toFixed(4)
+                            : 'N/A';
+                          return (
+                            <tr key={i} className={`border-t border-slate-100 dark:border-slate-700/60
+                              ${isSkipped
+                                ? 'bg-amber-50/40 dark:bg-amber-950/10 opacity-70'
+                                : 'hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20'}`}>
+                              <td className="px-4 py-2.5 font-semibold text-slate-800 dark:text-slate-200 max-w-[180px]">
+                                <div className="flex items-center flex-wrap gap-y-0.5">
+                                  <span className="truncate" title={p.name}>{p.name}</span>
+                                  {rowStatusBadge(p)}
+                                </div>
+                              </td>
+                              {[p.length || 'N/A', p.width || 'N/A', p.height || 'N/A', p.packSize, p.netWeightPerUnit, p.grossWeightPerShipper].map((v, j) => (
+                                <td key={j} className={`px-3 py-2.5 text-right font-mono text-xs ${isSkipped ? 'text-slate-400 dark:text-slate-600' : 'text-slate-600 dark:text-slate-400'}`}>{v}</td>
+                              ))}
+                              <td className={`px-4 py-2.5 text-right font-mono font-bold text-xs ${isSkipped ? 'text-slate-400 dark:text-slate-600' : 'text-indigo-600 dark:text-indigo-400'}`}>{cbm}</td>
+                            </tr>
+                          );
+                        })}
+                        {visibleRows.length > previewLimit && (
+                          <tr className="border-t-2 border-indigo-200 dark:border-indigo-800">
+                            <td colSpan={8} className="px-4 py-3 text-center bg-indigo-50/60 dark:bg-indigo-950/30">
+                              <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                                + {visibleRows.length - previewLimit} more rows… (All {visibleRows.length} will be imported)
+                              </span>
+                            </td>
+                          </tr>
+                        )}
+                      </>
                     );
-                  })}
+                  })()}
                 </tbody>
               </table>
             </div>
