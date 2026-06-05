@@ -340,6 +340,7 @@
        ═══════════════════════════════════════════════════════ */
     const toCm = (v, u) => {
       if (u === 'cm') return v;
+      if (u === 'mm') return v / 10;
       if (u === 'inches') return v * 2.54;
       if (u === 'feet') return v * 30.48;
       if (u === 'meters') return v * 100;
@@ -400,9 +401,28 @@
         reader.onload = e => {
           try {
             const wb = XLSX.read(e.target.result, { type: 'array' });
-            const ws = wb.Sheets[wb.SheetNames[0]];
-            const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
-            resolve({ headers: data.length ? Object.keys(data[0]) : [], rows: data });
+            const sheetNames = wb.SheetNames;
+
+            const parseSheet = (sheetName) => {
+              const ws = wb.Sheets[sheetName];
+              // Read everything as raw arrays to handle blank header rows
+              const allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+              // Find first row that actually has content — skip blank leading rows
+              const headerRowIdx = allRows.findIndex(row =>
+                row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== '')
+              );
+              if (headerRowIdx === -1) return { headers: [], rows: [] };
+              const headerRow = allRows[headerRowIdx].map(h => String(h ?? '').trim());
+              // All rows after the header that have at least one non-empty cell
+              const dataRows = allRows
+                .slice(headerRowIdx + 1)
+                .filter(r => r.some(c => c !== null && c !== undefined && String(c).trim() !== ''))
+                .map(r => Object.fromEntries(headerRow.map((h, i) => [h, r[i] ?? ''])));
+              return { headers: headerRow.filter(h => h !== ''), rows: dataRows };
+            };
+
+            const { headers, rows } = parseSheet(sheetNames[0]);
+            resolve({ headers, rows, sheetNames, parseSheet });
           } catch (err) { reject(err); }
         };
         reader.onerror = () => reject(new Error('Failed to read file'));
@@ -414,26 +434,42 @@
 
     /* ── Auto-map headers to known field aliases ── */
     const FIELD_ALIASES = {
-      name: ['product', 'name', 'item', 'description', 'sku', 'product name', 'item name'],
-      length: ['length', 'len', 'length (cm)', 'length (mm)', 'length (in)'],
-      width: ['width', 'wid', 'width (cm)', 'width (mm)', 'width (in)'],
-      height: ['height', 'ht', ' h', 'depth'],
-      packSize: ['pack', 'qty', 'quantity', 'pcs', 'units', 'pack size', 'pack qty'],
-      netWeight: ['net', 'nw', 'net weight', 'unit weight', 'net wt'],
-      grossWeight: ['gross', 'gw', 'gross weight', 'total weight', 'shipper weight', 'gross wt'],
+      name: ['product name', 'item name', 'material name', 'product', 'name', 'item', 'description', 'sku'],
+      length: ['length (cm)', 'length (mm)', 'length (in)', 'length', 'len'],
+      width: ['width (cm)', 'width (mm)', 'width (in)', 'width', 'wid'],
+      height: ['height (cm)', 'height (mm)', 'height (in)', 'height', 'depth', 'ht'],
+      packSize: ['pack size', 'pack qty', '1 pack qnt', 'no of pack', 'pack', 'pcs', 'units'],
+      netWeight: ['net wt.', 'net weight', 'unit weight', 'net wt', 'nt.wt', 'net'],
+      grossWeight: ['gross wt.', 'gross weight', 'total weight', 'shipper weight', 'gross wt', 'gr.wt.', 'gross'],
     };
+    // Single-letter exact column names (e.g. L, W, H in shipping templates)
+    const SINGLE_LETTER_ALIASES = { length: ['l'], width: ['w'], height: ['h'] };
     const DIM_ALIASES = ['size', 'dimension', 'dim', 'dimensions', 'l x w x h', 'lxwxh'];
 
     const autoMapHeaders = (headers) => {
       const mapping = {};
       let combinedDimColumn = null;
       const norm = headers.map(h => h.toLowerCase().trim());
+
+      // Check for combined dimension column (e.g. "dimensions", "L x W x H")
       norm.forEach((nh, i) => { if (DIM_ALIASES.some(a => nh.includes(a))) combinedDimColumn = headers[i]; });
+
+      // Multi-word / phrase aliases — longest first to avoid false substring matches
       Object.entries(FIELD_ALIASES).forEach(([field, aliases]) => {
         norm.forEach((nh, i) => {
           if (!mapping[field] && aliases.some(a => nh.includes(a.trim()))) mapping[field] = headers[i];
         });
       });
+
+      // Single-letter exact aliases (L, W, H) — only match if nothing was found yet
+      Object.entries(SINGLE_LETTER_ALIASES).forEach(([field, letters]) => {
+        if (!mapping[field]) {
+          norm.forEach((nh, i) => {
+            if (!mapping[field] && letters.some(l => nh === l)) mapping[field] = headers[i];
+          });
+        }
+      });
+
       return { mapping, combinedDimColumn };
     };
 
@@ -476,45 +512,49 @@
       };
     };
 
-    /** Transform all rows → valid product objects. */
+    /** Transform all rows → product objects, tagging invalid ones instead of dropping them. */
     const applyMapping = (rows, mapping, dimConfig) =>
-      rows.map((r, i) => buildProductFromRow(r, mapping, dimConfig, i))
-        .filter(p => p.length > 0 && p.width > 0 && p.height > 0);
+      rows.map((r, i) => {
+        const p = buildProductFromRow(r, mapping, dimConfig, i);
+        if (p.length <= 0 || p.width <= 0 || p.height <= 0) {
+          return { ...p, status: 'skipped', skipReason: 'Missing Dimensions' };
+        }
+        return { ...p, status: 'new' };
+      });
 
     /* ═══════════════════════════════════════════════════════
        4. SMART DE-DUPLICATION
-       Uses normalised product name as the primary key.
+       Composite signature: Name + L + W + H + PackSize + NetWt + GrossWt.
+       Same name / different dims → new variant (appended, not overwritten).
+       Exact full-signature match → skipped.
        ═══════════════════════════════════════════════════════ */
-    const normKey = (name) => name.trim().toLowerCase();
+    const compositeKey = (p) =>
+      `${p.name.trim().toLowerCase()}|${p.length}|${p.width}|${p.height}|${p.packSize}|${p.netWeightPerUnit}|${p.grossWeightPerShipper}`;
 
     const mergeProducts = (existing, incoming) => {
-      const indexMap = new Map(existing.map((p, i) => [normKey(p.name), i]));
+      // Build a set of composite signatures from what already exists
+      const existingKeys = new Set(existing.map(p => compositeKey(p)));
       const next = [...existing];
-      let added = 0, updated = 0;
+      let added = 0, skipped = 0;
+
+      // Also track composite keys we've already added in THIS batch
+      const batchKeys = new Set();
 
       incoming.forEach((p) => {
-        const key = normKey(p.name);
-        if (indexMap.has(key)) {
-          const i = indexMap.get(key);
-          next[i] = {
-            ...next[i],
-            length: p.length,
-            width: p.width,
-            height: p.height,
-            unit: p.unit,
-            packSize: p.packSize,
-            netWeightPerUnit: p.netWeightPerUnit,
-            grossWeightPerShipper: p.grossWeightPerShipper,
-          };
-          updated++;
+        if (p.status === 'skipped') return; // never persist invalid rows
+        const sig = compositeKey(p);
+        if (existingKeys.has(sig) || batchKeys.has(sig)) {
+          skipped++; // exact duplicate — do nothing
         } else {
-          next.push(p);
-          indexMap.set(key, next.length - 1);
+          const { status, skipReason, ...clean } = p;
+          next.push(clean);
+          existingKeys.add(sig);
+          batchKeys.add(sig);
           added++;
         }
       });
 
-      return { nextProducts: next, added, updated };
+      return { nextProducts: next, added, updated: 0, skipped };
     };
 
     /* ═══════════════════════════════════════════════════════
@@ -720,8 +760,8 @@
                 <FormInput id="manual-w" label="Width" value={f.width} onChange={v => up('width', v)} suffix={f.unit.slice(0, 2)} />
                 <FormInput id="manual-h" label="Height" value={f.height} onChange={v => up('height', v)} suffix={f.unit.slice(0, 2)} />
               </div>
-              <div className="grid grid-cols-4 gap-1.5">
-                {['cm', 'inches', 'feet', 'meters'].map(u => (
+              <div className="grid grid-cols-5 gap-1.5">
+                {['cm', 'mm', 'inches', 'feet', 'meters'].map(u => (
                   <button key={u} type="button" onClick={() => up('unit', u)}
                     className={`py-1.5 rounded-lg text-[10px] font-bold uppercase ${f.unit === u ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-600' : 'bg-slate-50 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-600'}`}>
                     {u}
@@ -785,20 +825,66 @@
       const [dragOver, setDragOver] = useState(false);
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState(null);
+      const [parsedFile, setParsedFile] = useState(null);  // holds result after file is read
+      const [selectedSheet, setSelectedSheet] = useState(null);
       const fileInputRef = useRef(null);
 
       const handleFile = async (file) => {
-        setLoading(true); setError(null);
+        setLoading(true); setError(null); setParsedFile(null);
         try {
           const result = await parseFile(file);
-          onFileParsed({ ...result, fileName: file.name });
+          if (result.sheetNames && result.sheetNames.length > 1) {
+            // Multiple sheets — let user pick before proceeding
+            setParsedFile({ ...result, fileName: file.name });
+            setSelectedSheet(result.sheetNames[0]);
+          } else {
+            // Single sheet — go straight to mapping
+            onFileParsed({ ...result, fileName: file.name });
+          }
         } catch (err) {
           setError(err.message || 'Failed to parse file.');
         } finally { setLoading(false); }
       };
 
+      const handleSheetConfirm = () => {
+        if (!parsedFile || !selectedSheet) return;
+        const { headers, rows } = parsedFile.parseSheet(selectedSheet);
+        onFileParsed({ headers, rows, sheetNames: parsedFile.sheetNames, fileName: parsedFile.fileName });
+      };
+
       return (
-        <div className="fade-in">
+        <div className="fade-in space-y-4">
+          {/* Sheet selector — shown only for multi-sheet workbooks */}
+          {parsedFile && parsedFile.sheetNames && parsedFile.sheetNames.length > 1 && (
+            <div className="p-4 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 fade-in">
+              <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-3">
+                📋 {parsedFile.sheetNames.length} sheets found in <span className="text-indigo-600 dark:text-indigo-400">{parsedFile.fileName}</span> — pick one to import
+              </p>
+              <div className="flex flex-col gap-2 mb-4">
+                {parsedFile.sheetNames.map(name => {
+                  const { headers } = parsedFile.parseSheet(name);
+                  return (
+                    <button key={name} type="button" onClick={() => setSelectedSheet(name)}
+                      className={`w-full text-left px-4 py-3 rounded-xl border text-sm font-semibold flex items-center justify-between gap-2
+                        ${selectedSheet === name
+                          ? 'bg-indigo-100 dark:bg-indigo-900/60 border-indigo-400 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300'
+                          : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:border-indigo-300'
+                        }`}>
+                      <span>📄 {name}</span>
+                      <span className="text-[11px] font-normal text-slate-400 dark:text-slate-500 truncate">
+                        {headers.length} columns{headers.length > 0 ? `: ${headers.slice(0, 4).join(', ')}${headers.length > 4 ? ` +${headers.length - 4} more` : ''}` : ' (empty)'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <button onClick={handleSheetConfirm} disabled={!selectedSheet}
+                className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm disabled:opacity-50">
+                Use "{selectedSheet}" →
+              </button>
+            </div>
+          )}
+
           <div id="file-drop-zone"
             onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -949,8 +1035,8 @@
           {/* Dimension unit selector */}
           <div className="p-4 rounded-xl bg-sky-50/80 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800/50">
             <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-3">📐 Dimension Unit in this file</p>
-            <div className="grid grid-cols-4 gap-2">
-              {['cm', 'inches', 'feet', 'meters'].map(u => (
+            <div className="grid grid-cols-5 gap-2">
+              {['cm', 'mm', 'inches', 'feet', 'meters'].map(u => (
                 <button key={u} type="button" onClick={() => setImportUnit(u)}
                   className={`py-2 px-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide truncate
                     ${importUnit === u
@@ -1000,64 +1086,148 @@
        13. WIZARD STEP 3 — PREVIEW & IMPORT
        ═══════════════════════════════════════════════════════ */
     const DataPreviewStep = ({ rows, mapping, dimConfig, existingProducts, onImport, onBack }) => {
-      const previewProducts = useMemo(() => applyMapping(rows.slice(0, 3), mapping, dimConfig), [rows, mapping, dimConfig]);
-      const allProducts = useMemo(() => applyMapping(rows, mapping, dimConfig), [rows, mapping, dimConfig]);
-      const mergeStats = useMemo(() => {
-        const { added, updated } = mergeProducts(existingProducts, allProducts);
-        return { added, updated };
-      }, [existingProducts, allProducts]);
+      // Step 1: get all rows tagged by applyMapping (valid = 'new', invalid = 'skipped')
+      const allTagged = useMemo(() => applyMapping(rows, mapping, dimConfig), [rows, mapping, dimConfig]);
+
+      // Step 2: apply composite-key dedup against the existing directory
+      //         exact match → promote to 'skipped' (Exact Duplicate)
+      //         same name but different dims → remains 'new' (treated as variant)
+      const taggedProducts = useMemo(() => {
+        const existingSigs = new Set(existingProducts.map(p => compositeKey(p)));
+        const batchSigs = new Set();
+        return allTagged.map(p => {
+          if (p.status === 'skipped') return p; // already invalid — keep its reason
+          const sig = compositeKey(p);
+          if (existingSigs.has(sig) || batchSigs.has(sig)) {
+            return { ...p, status: 'skipped', skipReason: 'Exact Duplicate' };
+          }
+          batchSigs.add(sig);
+          return p; // status: 'new'
+        });
+      }, [allTagged, existingProducts]);
+
+      // Products that will actually be persisted (exclude all skipped rows)
+      const importableProducts = useMemo(
+        () => taggedProducts.filter(p => p.status !== 'skipped').map(({ status, skipReason, ...p }) => p),
+        [taggedProducts]
+      );
+
+      const counts = useMemo(() => ({
+        new: taggedProducts.filter(p => p.status === 'new').length,
+        skipped: taggedProducts.filter(p => p.status === 'skipped').length,
+        total: rows.length,
+      }), [taggedProducts, rows.length]);
+
+      const [activeFilter, setActiveFilter] = useState('all');
       const [importing, setImporting] = useState(false);
-      const skipped = rows.length - allProducts.length;
-      const handleImport = () => { setImporting(true); setTimeout(() => onImport(allProducts), 500); };
+
+      const handleImport = () => { setImporting(true); setTimeout(() => onImport(importableProducts), 500); };
+
+      const visibleRows = useMemo(() => {
+        if (activeFilter === 'new') return taggedProducts.filter(p => p.status === 'new');
+        if (activeFilter === 'skipped') return taggedProducts.filter(p => p.status === 'skipped');
+        return taggedProducts;
+      }, [taggedProducts, activeFilter]);
+
+      const chipDefs = [
+        {
+          key: 'new',
+          label: `✓ ${counts.new} new`,
+          base: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400',
+          active: 'ring-2 ring-emerald-400 dark:ring-emerald-600 scale-[1.04]',
+        },
+        {
+          key: 'skipped',
+          label: `⚠ ${counts.skipped} skipped`,
+          base: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400',
+          active: 'ring-2 ring-amber-400 dark:ring-amber-600 scale-[1.04]',
+          hide: counts.skipped === 0,
+        },
+        {
+          key: 'all',
+          label: `${counts.total} total`,
+          base: 'bg-slate-50 dark:bg-slate-700/50 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400',
+          active: 'ring-2 ring-slate-400 dark:ring-slate-500 scale-[1.04]',
+        },
+      ];
+
+      const rowStatusBadge = (p) => {
+        if (p.status === 'skipped') {
+          return (
+            <span className="ml-1.5 inline-flex items-center gap-1 flex-shrink-0">
+              <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-700 uppercase tracking-wide">skip</span>
+              {p.skipReason && <span className="text-[9px] text-rose-500 dark:text-rose-400 font-medium">{p.skipReason}</span>}
+            </span>
+          );
+        }
+        return <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-700 uppercase tracking-wide flex-shrink-0">new</span>;
+      };
 
       return (
-        <div className="fade-in space-y-5">
+        <div className="fade-in space-y-4">
+          {/* Clickable filter chips */}
           <div className="flex flex-wrap gap-2">
-            <div className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800">
-              <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">✓ {mergeStats.added} new</span>
-            </div>
-            {mergeStats.updated > 0 && (
-              <div className="px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800">
-                <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400">↻ {mergeStats.updated} updated</span>
-              </div>
-            )}
-            {skipped > 0 && (
-              <div className="px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-                <span className="text-xs font-bold text-amber-700 dark:text-amber-400">⚠ {skipped} skipped</span>
-              </div>
-            )}
-            <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
-              <span className="text-xs font-bold text-slate-600 dark:text-slate-400">{rows.length} total rows</span>
-            </div>
+            {chipDefs.filter(c => !c.hide).map(chip => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={() => setActiveFilter(activeFilter === chip.key ? 'all' : chip.key)}
+                className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all duration-150 cursor-pointer
+                  ${chip.base}
+                  ${activeFilter === chip.key ? chip.active : 'opacity-80 hover:opacity-100'}`}
+              >
+                {chip.label}
+              </button>
+            ))}
           </div>
 
+          {/* Full scrollable preview table */}
           <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-            <div className="bg-gradient-to-r from-slate-50 to-indigo-50/30 dark:from-slate-800 dark:to-indigo-950/20 px-4 py-2.5 border-b border-slate-200 dark:border-slate-700">
-              <p className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Preview — First 3 Rows</p>
+            <div className="bg-gradient-to-r from-slate-50 to-indigo-50/30 dark:from-slate-800 dark:to-indigo-950/20 px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+              <p className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+                {activeFilter === 'all' ? `All ${taggedProducts.length} rows` : `Showing ${visibleRows.length} ${activeFilter} rows`}
+              </p>
+              {activeFilter !== 'all' && (
+                <button onClick={() => setActiveFilter('all')} className="text-[10px] text-indigo-500 dark:text-indigo-400 font-bold hover:underline">Show all</button>
+              )}
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[480px]">
-                <thead>
-                  <tr className="bg-slate-50/60 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700">
+            <div className="overflow-x-auto max-h-64 overflow-y-auto">
+              <table className="w-full text-sm min-w-[520px]">
+                <thead className="sticky top-0 z-10">
+                  <tr className="bg-slate-50/90 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 backdrop-blur-sm">
                     {['Name', 'L', 'W', 'H', 'Pack', 'Net Wt', 'Gross Wt', 'CBM'].map((h, i) => (
                       <th key={h} className={`${i === 0 ? 'text-left px-4' : 'text-right px-3'} py-2.5 text-[11px] font-bold ${i === 7 ? 'text-indigo-500 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'} uppercase tracking-wider`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {previewProducts.length === 0 ? (
+                  {visibleRows.length === 0 ? (
                     <tr><td colSpan={8} className="px-4 py-10 text-center">
-                      <div className="flex flex-col items-center gap-2 text-slate-400"><WarningIcon /><p className="text-sm font-medium">No valid products found</p><p className="text-xs">Go back and check your column mappings</p></div>
+                      <div className="flex flex-col items-center gap-2 text-slate-400"><WarningIcon /><p className="text-sm font-medium">No rows in this category</p></div>
                     </td></tr>
-                  ) : previewProducts.map((p, i) => (
-                    <tr key={i} className="border-t border-slate-100 dark:border-slate-700/60 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20">
-                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200 max-w-[140px] truncate" title={p.name}>{p.name}</td>
-                      {[p.length, p.width, p.height, p.packSize, p.netWeightPerUnit, p.grossWeightPerShipper].map((v, j) => (
-                        <td key={j} className="px-3 py-3 text-right font-mono text-slate-600 dark:text-slate-400 text-xs">{v}</td>
-                      ))}
-                      <td className="px-4 py-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs">{calcCBM(p.length, p.width, p.height, p.unit || 'cm').toFixed(4)}</td>
-                    </tr>
-                  ))}
+                  ) : visibleRows.map((p, i) => {
+                    const isSkipped = p.status === 'skipped';
+                    const cbm = (!isSkipped && p.length > 0 && p.width > 0 && p.height > 0)
+                      ? calcCBM(p.length, p.width, p.height, p.unit || 'cm').toFixed(4)
+                      : 'N/A';
+                    return (
+                      <tr key={i} className={`border-t border-slate-100 dark:border-slate-700/60
+                        ${isSkipped
+                          ? 'bg-amber-50/40 dark:bg-amber-950/10 opacity-70'
+                          : 'hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20'}`}>
+                        <td className="px-4 py-2.5 font-semibold text-slate-800 dark:text-slate-200 max-w-[180px]">
+                          <div className="flex items-center flex-wrap gap-y-0.5">
+                            <span className="truncate" title={p.name}>{p.name}</span>
+                            {rowStatusBadge(p)}
+                          </div>
+                        </td>
+                        {[p.length || 'N/A', p.width || 'N/A', p.height || 'N/A', p.packSize, p.netWeightPerUnit, p.grossWeightPerShipper].map((v, j) => (
+                          <td key={j} className={`px-3 py-2.5 text-right font-mono text-xs ${isSkipped ? 'text-slate-400 dark:text-slate-600' : 'text-slate-600 dark:text-slate-400'}`}>{v}</td>
+                        ))}
+                        <td className={`px-4 py-2.5 text-right font-mono font-bold text-xs ${isSkipped ? 'text-slate-400 dark:text-slate-600' : 'text-indigo-600 dark:text-indigo-400'}`}>{cbm}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1068,15 +1238,15 @@
               className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-600">
               <ArrowLeftIcon /> Back
             </button>
-            <button id="import-catalog-btn" onClick={handleImport} disabled={allProducts.length === 0 || importing}
+            <button id="import-catalog-btn" onClick={handleImport} disabled={importableProducts.length === 0 || importing}
               className={`flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold
-                ${allProducts.length > 0 && !importing
+                ${importableProducts.length > 0 && !importing
                   ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 hover:shadow-glow'
                   : 'bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-600'
                 }`}>
               {importing
                 ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full spinner" /> Importing…</>
-                : <><CheckCircleIcon /> Import {allProducts.length} Products</>
+                : <><CheckCircleIcon /> Import {importableProducts.length} Products</>
               }
             </button>
           </div>
@@ -1359,8 +1529,8 @@
 
                   <div className="mb-4 space-y-1.5">
                     <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Unit</label>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {['cm', 'inches', 'feet', 'meters'].map(u => (
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {['cm', 'mm', 'inches', 'feet', 'meters'].map(u => (
                         <button key={u} id={`unit-${u}`} onClick={() => updateForm('unit', u)}
                           className={`py-2 px-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide max-w-full truncate
                             ${form.unit === u
@@ -1661,7 +1831,7 @@
                       <div className="space-y-2 max-h-[450px] overflow-y-auto pr-1">
                         {filteredProducts.length === 0 ? (
                           <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-6">No products matching "{productSearch}"</p>
-                        ) : filteredProducts.map(product => {
+                        ) : [...filteredProducts].sort((a, b) => a.name.localeCompare(b.name)).map(product => {
                           const isActive = activeProductId === product.id;
                           return (
                             <button key={product.id} id={`product-${product.id}`}
