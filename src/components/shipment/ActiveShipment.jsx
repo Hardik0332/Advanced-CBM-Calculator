@@ -1,0 +1,387 @@
+/**
+ * ActiveShipment — Middle panel with shipment items, totals, container fill, and freight mode.
+ */
+import {
+  TruckIcon,
+  BoxIcon,
+  ScaleIcon,
+  TrashIcon,
+  EditIcon,
+  CopyIcon,
+  ExcelIcon,
+  PdfIcon,
+} from '../icons/Icons';
+import { CONTAINERS } from '../../utils/calculations';
+import { exportExcel, exportPDF } from '../../utils/exporting';
+
+const ActiveShipment = ({
+  shipment,
+  flashId,
+  poNumber,
+  setPoNumber,
+  containerType,
+  setContainerType,
+  freightMode,
+  setFreightMode,
+  totals,
+  volumetricWeight,
+  chargeableWeight,
+  containerPct,
+  handleRemove,
+  handleQuantityChange,
+  handleEditItem,
+  handleDuplicateItem,
+  clearShipment,
+}) => {
+  const panelCls = 'glass rounded-2xl shadow-card dark:shadow-card-dark';
+
+  return (
+    <section className="lg:col-span-6 fade-in" style={{ animationDelay: '0.12s' }}>
+      <div className={`${panelCls} p-5 flex flex-col`}>
+        {/* Header row with PO input + export buttons */}
+        <div className="flex items-center justify-between mb-3 flex-shrink-0 gap-2 flex-wrap">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+              <TruckIcon />
+            </div>
+            <h2 className="text-base font-bold text-slate-800 dark:text-slate-100 truncate">
+              Active Shipment
+            </h2>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+            {shipment.length > 0 && (
+              <>
+                <button
+                  id="export-excel-btn"
+                  onClick={() => exportExcel(shipment, totals, poNumber)}
+                  title="Export Excel"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/30"
+                >
+                  <ExcelIcon /> Excel
+                </button>
+                <button
+                  id="export-pdf-btn"
+                  onClick={() =>
+                    exportPDF(shipment, totals, poNumber, containerType, freightMode)
+                  }
+                  title="Export PDF"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/30"
+                >
+                  <PdfIcon /> PDF
+                </button>
+                <button
+                  onClick={clearShipment}
+                  title="Clear all"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
+                >
+                  <TrashIcon /> Clear
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* PO / Reference Number */}
+        <div className="mb-4">
+          <input
+            id="po-number"
+            type="text"
+            value={poNumber}
+            onChange={(e) => setPoNumber(e.target.value)}
+            placeholder="Shipment Reference / PO Number"
+            className="w-full bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-600/70 rounded-xl px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+          />
+        </div>
+
+        {/* Items list */}
+        <div className="flex-1 space-y-3 overflow-y-auto max-h-[320px] lg:max-h-[360px] pr-1">
+          {shipment.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center py-12">
+              <div className="w-16 h-16 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center mb-4 text-slate-400 dark:text-slate-600">
+                <BoxIcon />
+              </div>
+              <p className="text-slate-500 dark:text-slate-400 text-sm font-semibold">
+                No items in shipment
+              </p>
+              <p className="text-slate-400 dark:text-slate-600 text-xs mt-1">
+                Add items from the form or product directory
+              </p>
+            </div>
+          ) : (
+            shipment.map((item, idx) => {
+              const totalCBM = item.cbmPerShipper * item.quantity;
+              const totalWeight = item.grossWeightPerShipper * item.quantity;
+              const totalPcs = item.packSize * item.quantity;
+              const isFlashing = flashId === item.id;
+              return (
+                <div
+                  key={item.id}
+                  className={`group rounded-xl border
+                    ${
+                      isFlashing
+                        ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-700 shadow-glow'
+                        : 'bg-white/60 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                    }`}
+                >
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">
+                          {item.name}
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                          {item.length}×{item.width}×{item.height} {item.unit} ·{' '}
+                          {item.packSize} pcs/shipper
+                        </p>
+                      </div>
+                      {/* Action icons: Edit, Copy, Delete */}
+                      <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100">
+                        <button
+                          id={`edit-item-${idx}`}
+                          onClick={() => handleEditItem(item)}
+                          title="Edit"
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
+                        >
+                          <EditIcon />
+                        </button>
+                        <button
+                          id={`dup-item-${idx}`}
+                          onClick={() => handleDuplicateItem(item)}
+                          title="Duplicate"
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-teal-500 hover:bg-teal-50 dark:hover:bg-teal-950/30"
+                        >
+                          <CopyIcon />
+                        </button>
+                        <button
+                          id={`remove-item-${idx}`}
+                          onClick={() => handleRemove(item.id)}
+                          title="Remove"
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                        >
+                          <TrashIcon />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <div className="flex items-center justify-between min-w-[260px] gap-3">
+                        <div className="flex items-center gap-4">
+                          <div className="text-center">
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">
+                              CBM/ship
+                            </p>
+                            <p className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                              {item.cbmPerShipper.toFixed(4)}
+                            </p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">
+                              Total CBM
+                            </p>
+                            <p className="text-sm font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                              {totalCBM.toFixed(4)}
+                            </p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">
+                              Wt
+                            </p>
+                            <p className="text-sm font-mono font-bold text-amber-600 dark:text-amber-400">
+                              {totalWeight.toFixed(1)}
+                            </p>
+                          </div>
+                          {item.packSize > 1 && (
+                            <div className="text-center">
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">
+                                Pcs
+                              </p>
+                              <p className="text-sm font-mono font-bold text-violet-600 dark:text-violet-400">
+                                {totalPcs.toLocaleString()}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            id={`qty-dec-${idx}`}
+                            onClick={() =>
+                              handleQuantityChange(item.id, item.quantity - 1)
+                            }
+                            className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 flex items-center justify-center text-base font-bold"
+                          >
+                            −
+                          </button>
+                          <input
+                            id={`qty-input-${idx}`}
+                            type="number"
+                            min="1"
+                            value={item.quantity}
+                            onChange={(e) =>
+                              handleQuantityChange(
+                                item.id,
+                                parseInt(e.target.value) || 1
+                              )
+                            }
+                            className="w-12 h-8 text-center bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                          />
+                          <button
+                            id={`qty-inc-${idx}`}
+                            onClick={() =>
+                              handleQuantityChange(item.id, item.quantity + 1)
+                            }
+                            className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 flex items-center justify-center text-base font-bold"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Grand totals + Container + Freight */}
+        {shipment.length > 0 && (
+          <div className="mt-5 pt-5 border-t border-slate-200 dark:border-slate-700 flex-shrink-0 space-y-4">
+            {/* 4 totals row */}
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { label: 'Total CBM', value: totals.cbm.toFixed(4), color: 'indigo', icon: <BoxIcon /> },
+                { label: 'Gross Wt', value: totals.grossWeight.toFixed(1) + ' kg', color: 'amber', icon: <ScaleIcon /> },
+                { label: 'Net Wt', value: totals.netWeight.toFixed(1) + ' kg', color: 'cyan', icon: <ScaleIcon /> },
+                { label: 'Shippers', value: totals.shippers, color: 'emerald', icon: <TruckIcon /> },
+              ].map((t) => (
+                <div
+                  key={t.label}
+                  className={`rounded-xl bg-gradient-to-br from-${t.color}-50 to-${t.color}-100/50 dark:from-${t.color}-950/40 dark:to-${t.color}-900/20 border border-${t.color}-200 dark:border-${t.color}-800/50 p-2.5 text-center pulse-glow`}
+                >
+                  <div
+                    className={`flex items-center justify-center gap-1 mb-1 text-${t.color}-500 dark:text-${t.color}-400`}
+                  >
+                    {t.icon}
+                    <p className="text-[8px] uppercase tracking-widest font-bold hidden sm:block">
+                      {t.label}
+                    </p>
+                  </div>
+                  <p
+                    className={`text-xs sm:text-base font-bold font-mono text-${t.color}-600 dark:text-${t.color}-400 tabular-nums truncate`}
+                  >
+                    {t.value}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {/* Container utilization */}
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <span className="text-[10px] uppercase tracking-widest font-bold text-slate-500 dark:text-slate-400">
+                  Container Fill
+                </span>
+                <select
+                  id="container-select"
+                  value={containerType}
+                  onChange={(e) => setContainerType(e.target.value)}
+                  className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+                >
+                  {Object.entries(CONTAINERS).map(([k, v]) => (
+                    <option key={k} value={k}>
+                      {v.label} ({v.cbm} m³)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-4 overflow-hidden">
+                <div
+                  className={`bar-fill h-full rounded-full ${
+                    containerPct > 95
+                      ? 'bg-gradient-to-r from-rose-500 to-red-500'
+                      : containerPct > 75
+                        ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                        : 'bg-gradient-to-r from-indigo-500 to-violet-500'
+                  }`}
+                  style={{ width: `${containerPct}%` }}
+                />
+              </div>
+              <div className="flex justify-between mt-1.5">
+                <span className="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400">
+                  {totals.cbm.toFixed(2)} / {CONTAINERS[containerType].cbm} m³
+                </span>
+                <span
+                  className={`text-[11px] font-mono font-bold ${
+                    containerPct > 95
+                      ? 'text-rose-600 dark:text-rose-400'
+                      : 'text-indigo-600 dark:text-indigo-400'
+                  }`}
+                >
+                  {containerPct.toFixed(1)}%
+                </span>
+              </div>
+            </div>
+
+            {/* Freight Mode + Chargeable Weight */}
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <span className="text-[10px] uppercase tracking-widest font-bold text-slate-500 dark:text-slate-400">
+                  Freight Mode
+                </span>
+                <div className="flex items-center bg-slate-200 dark:bg-slate-700 rounded-lg p-0.5">
+                  {['ocean', 'air'].map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setFreightMode(m)}
+                      className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase ${
+                        freightMode === m
+                          ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-300 shadow-sm'
+                          : 'text-slate-500 dark:text-slate-400'
+                      }`}
+                    >
+                      {m === 'ocean' ? '🚢 Ocean' : '✈️ Air'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-[9px] text-slate-500 dark:text-slate-400 uppercase mb-0.5">
+                    Volumetric
+                  </p>
+                  <p className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
+                    {volumetricWeight.toFixed(1)} kg
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[9px] text-slate-500 dark:text-slate-400 uppercase mb-0.5">
+                    Gross
+                  </p>
+                  <p className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
+                    {totals.grossWeight.toFixed(1)} kg
+                  </p>
+                </div>
+                <div className="bg-indigo-50 dark:bg-indigo-950/40 rounded-lg p-1.5 border border-indigo-200 dark:border-indigo-800">
+                  <p className="text-[9px] text-indigo-600 dark:text-indigo-400 uppercase mb-0.5 font-bold">
+                    Chargeable
+                  </p>
+                  <p className="text-sm font-mono font-bold text-indigo-700 dark:text-indigo-300">
+                    {chargeableWeight.toFixed(1)} kg
+                  </p>
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2 text-center">
+                {freightMode === 'air'
+                  ? 'Air: 1 CBM = 167 kg'
+                  : 'Ocean: 1 CBM = 1,000 kg'}{' '}
+                · Chargeable = max(Gross, Volumetric)
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+};
+
+export default ActiveShipment;
