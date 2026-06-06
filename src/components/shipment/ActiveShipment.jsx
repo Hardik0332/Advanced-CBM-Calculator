@@ -37,9 +37,9 @@ const ActiveShipment = ({
 
   return (
     <section className="lg:col-span-6 fade-in" style={{ animationDelay: '0.12s' }}>
-      <div className={`${panelCls} p-5 flex flex-col`}>
+      <div className={`${panelCls} p-4 sm:p-5 flex flex-col`}>
         {/* Header row with PO input + export buttons */}
-        <div className="flex items-center justify-between mb-3 flex-shrink-0 gap-2 flex-wrap">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-2 mb-4 flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 flex-shrink-0">
               <TruckIcon />
@@ -48,7 +48,7 @@ const ActiveShipment = ({
               Active Shipment
             </h2>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+          <div className="flex items-center w-full sm:w-auto justify-start sm:justify-end gap-2 flex-shrink-0 flex-wrap">
             {shipment.length > 0 && (
               <>
                 <button
@@ -113,14 +113,14 @@ const ActiveShipment = ({
               const totalWeight = item.grossWeightPerShipper * item.quantity;
               const totalPcs = item.packSize * item.quantity;
               const isFlashing = flashId === item.id;
+
               return (
                 <div
                   key={item.id}
                   className={`group rounded-xl border
-                    ${
-                      isFlashing
-                        ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-700 shadow-glow'
-                        : 'bg-white/60 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                    ${isFlashing
+                      ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-700 shadow-glow'
+                      : 'bg-white/60 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
                     }`}
                 >
                   <div className="p-4">
@@ -163,77 +163,45 @@ const ActiveShipment = ({
                       </div>
                     </div>
 
-                    <div className="overflow-x-auto">
-                      <div className="flex items-center justify-between min-w-[260px] gap-3">
-                        <div className="flex items-center gap-4">
-                          <div className="text-center">
-                            <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">
-                              CBM/ship
-                            </p>
-                            <p className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                              {item.cbmPerShipper.toFixed(4)}
-                            </p>
+                    {/* Responsive Mobile Layout for Stats & Controls */}
+                    <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
+                      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 sm:gap-4">
+
+                        {/* Stats Grid - Locks to 4 columns on mobile so text doesn't squish */}
+                        <div className="grid grid-cols-4 gap-2 w-full sm:w-auto">
+                          <div className="text-center sm:text-left">
+                            <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">CBM/ship</p>
+                            <p className="text-[11px] sm:text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 truncate">{item.cbmPerShipper.toFixed(4)}</p>
                           </div>
-                          <div className="text-center">
-                            <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">
-                              Total CBM
-                            </p>
-                            <p className="text-sm font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                              {totalCBM.toFixed(4)}
-                            </p>
+                          <div className="text-center sm:text-left">
+                            <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">Total CBM</p>
+                            <p className="text-[11px] sm:text-sm font-mono font-bold text-indigo-600 dark:text-indigo-400 truncate">{totalCBM.toFixed(4)}</p>
                           </div>
-                          <div className="text-center">
-                            <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">
-                              Wt
-                            </p>
-                            <p className="text-sm font-mono font-bold text-amber-600 dark:text-amber-400">
-                              {totalWeight.toFixed(1)}
-                            </p>
+                          <div className="text-center sm:text-left">
+                            <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">Wt (kg)</p>
+                            <p className="text-[11px] sm:text-sm font-mono font-bold text-amber-600 dark:text-amber-400 truncate">{totalWeight.toFixed(1)}</p>
                           </div>
-                          {item.packSize > 1 && (
-                            <div className="text-center">
-                              <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">
-                                Pcs
-                              </p>
-                              <p className="text-sm font-mono font-bold text-violet-600 dark:text-violet-400">
-                                {totalPcs.toLocaleString()}
-                              </p>
+                          {item.packSize > 1 ? (
+                            <div className="text-center sm:text-left">
+                              <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">Pcs</p>
+                              <p className="text-[11px] sm:text-sm font-mono font-bold text-violet-600 dark:text-violet-400 truncate">{totalPcs.toLocaleString()}</p>
                             </div>
-                          )}
+                          ) : <div />}
                         </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <button
-                            id={`qty-dec-${idx}`}
-                            onClick={() =>
-                              handleQuantityChange(item.id, item.quantity - 1)
-                            }
-                            className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 flex items-center justify-center text-base font-bold"
-                          >
-                            −
-                          </button>
-                          <input
-                            id={`qty-input-${idx}`}
-                            type="number"
-                            min="1"
-                            value={item.quantity}
-                            onChange={(e) =>
-                              handleQuantityChange(
-                                item.id,
-                                parseInt(e.target.value) || 1
-                              )
-                            }
-                            className="w-12 h-8 text-center bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-                          />
-                          <button
-                            id={`qty-inc-${idx}`}
-                            onClick={() =>
-                              handleQuantityChange(item.id, item.quantity + 1)
-                            }
-                            className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 flex items-center justify-center text-base font-bold"
-                          >
-                            +
-                          </button>
+
+                        {/* Qty Controls - Drops below stats on mobile, aligns right */}
+                        <div className="flex items-center justify-end w-full sm:w-auto mt-1 sm:mt-0">
+                          <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/50 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                            <button id={`qty-dec-${idx}`} onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
+                              className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600 flex items-center justify-center text-base font-bold">−</button>
+                            <input id={`qty-input-${idx}`} type="number" min="1" value={item.quantity}
+                              onChange={e => handleQuantityChange(item.id, parseInt(e.target.value) || 1)}
+                              className="w-12 h-8 mx-0.5 text-center bg-transparent border-none text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-0" />
+                            <button id={`qty-inc-${idx}`} onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
+                              className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600 flex items-center justify-center text-base font-bold">+</button>
+                          </div>
                         </div>
+
                       </div>
                     </div>
                   </div>
@@ -247,7 +215,7 @@ const ActiveShipment = ({
         {shipment.length > 0 && (
           <div className="mt-5 pt-5 border-t border-slate-200 dark:border-slate-700 flex-shrink-0 space-y-4">
             {/* 4 totals row */}
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
                 { label: 'Total CBM', value: totals.cbm.toFixed(4), color: 'indigo', icon: <BoxIcon /> },
                 { label: 'Gross Wt', value: totals.grossWeight.toFixed(1) + ' kg', color: 'amber', icon: <ScaleIcon /> },
@@ -296,13 +264,12 @@ const ActiveShipment = ({
               </div>
               <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-4 overflow-hidden">
                 <div
-                  className={`bar-fill h-full rounded-full ${
-                    containerPct > 95
-                      ? 'bg-gradient-to-r from-rose-500 to-red-500'
-                      : containerPct > 75
-                        ? 'bg-gradient-to-r from-amber-500 to-orange-500'
-                        : 'bg-gradient-to-r from-indigo-500 to-violet-500'
-                  }`}
+                  className={`bar-fill h-full rounded-full ${containerPct > 95
+                    ? 'bg-gradient-to-r from-rose-500 to-red-500'
+                    : containerPct > 75
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                      : 'bg-gradient-to-r from-indigo-500 to-violet-500'
+                    }`}
                   style={{ width: `${containerPct}%` }}
                 />
               </div>
@@ -311,15 +278,19 @@ const ActiveShipment = ({
                   {totals.cbm.toFixed(2)} / {CONTAINERS[containerType].cbm} m³
                 </span>
                 <span
-                  className={`text-[11px] font-mono font-bold ${
-                    containerPct > 95
-                      ? 'text-rose-600 dark:text-rose-400'
-                      : 'text-indigo-600 dark:text-indigo-400'
-                  }`}
+                  className={`text-[11px] font-mono font-bold ${containerPct > 95
+                    ? 'text-rose-600 dark:text-rose-400'
+                    : 'text-indigo-600 dark:text-indigo-400'
+                    }`}
                 >
                   {containerPct.toFixed(1)}%
                 </span>
               </div>
+              {containerPct > 0 && containerPct < 100 && (
+                <div className="mt-2.5 text-center text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 py-1.5 rounded border border-amber-200/50 dark:border-amber-500/20 shadow-sm animate-pulse">
+                  Add more products to fill the container
+                </div>
+              )}
             </div>
 
             {/* Freight Mode + Chargeable Weight */}
@@ -333,11 +304,10 @@ const ActiveShipment = ({
                     <button
                       key={m}
                       onClick={() => setFreightMode(m)}
-                      className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase ${
-                        freightMode === m
-                          ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-300 shadow-sm'
-                          : 'text-slate-500 dark:text-slate-400'
-                      }`}
+                      className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase ${freightMode === m
+                        ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-300 shadow-sm'
+                        : 'text-slate-500 dark:text-slate-400'
+                        }`}
                     >
                       {m === 'ocean' ? '🚢 Ocean' : '✈️ Air'}
                     </button>

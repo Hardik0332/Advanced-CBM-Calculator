@@ -17,10 +17,10 @@ export const parseDimensionString = (str, delimiter = 'x') => {
   const esc = delimiter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pat = new RegExp(
     '([\\d]+\\.?[\\d]*)\\s*[a-zA-Z]*\\s*' +
-      esc +
-      '\\s*([\\d]+\\.?[\\d]*)\\s*[a-zA-Z]*\\s*' +
-      esc +
-      '\\s*([\\d]+\\.?[\\d]*)',
+    esc +
+    '\\s*([\\d]+\\.?[\\d]*)\\s*[a-zA-Z]*\\s*' +
+    esc +
+    '\\s*([\\d]+\\.?[\\d]*)',
     'i'
   );
   const m = str.match(pat);
@@ -38,15 +38,15 @@ export const parseDimensionString = (str, delimiter = 'x') => {
  * @param {*} val - The cell value.
  * @returns {number}
  */
+/** Coerce any cell value to a valid number, strictly defaulting to 0. */
 export const sanitizeNumeric = (val) => {
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
   if (val == null || val === '') return 0;
-  const n = parseFloat(
-    String(val)
-      .replace(/,/g, '')
-      .replace(/[^\d.\-]/g, '')
-      .trim()
-  );
+
+  // Clean string and parse
+  const n = parseFloat(String(val).replace(/,/g, '').replace(/[^\d.\-]/g, '').trim());
+
+  // Strict NaN fallback to prevent validation bypass
   return isNaN(n) ? 0 : n;
 };
 
@@ -158,6 +158,16 @@ export const FIELD_ALIASES = {
   length: ['length (cm)', 'length (mm)', 'length (in)', 'length', 'len'],
   width: ['width (cm)', 'width (mm)', 'width (in)', 'width', 'wid'],
   height: ['height (cm)', 'height (mm)', 'height (in)', 'height', 'depth', 'ht'],
+  cbm: [
+    'sum of totalcbm',
+    'total cbm',
+    'totalcbm',
+    'cbm/shipper',
+    'cbm per shipper',
+    'volume (m³)',
+    'volume (cbm)',
+    'cbm',
+  ],
   packSize: [
     'pack size',
     'pack qty',
@@ -276,9 +286,9 @@ export const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
       dimConfig.delimiter || 'x'
     );
     if (parsed) {
-      length = parsed.length;
-      width = parsed.width;
-      height = parsed.height;
+      length = sanitizeNumeric(parsed.length);
+      width = sanitizeNumeric(parsed.width);
+      height = sanitizeNumeric(parsed.height);
     }
   } else {
     length = sanitizeNumeric(row[mapping.length]);
@@ -286,6 +296,13 @@ export const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
     height = sanitizeNumeric(row[mapping.height]);
   }
   const style = IMPORT_COLORS[slotIndex % IMPORT_COLORS.length];
+
+  // When file has no L/W/H but has a pre-calculated CBM column, store it directly
+  const preCalcCBM =
+    !length && !width && !height && mapping.cbm
+      ? sanitizeNumeric(row[mapping.cbm])
+      : 0;
+
   return {
     id: `import-${Date.now()}-${slotIndex}-${Math.random().toString(36).substr(2, 5)}`,
     name: String(row[mapping.name] || `Product ${slotIndex + 1}`).trim(),
@@ -300,6 +317,8 @@ export const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
     packSize: sanitizeNumeric(row[mapping.packSize]) || 1,
     netWeightPerUnit: sanitizeNumeric(row[mapping.netWeight]),
     grossWeightPerShipper: sanitizeNumeric(row[mapping.grossWeight]),
+    ...(preCalcCBM > 0 && { cbmPerShipper: preCalcCBM }),
+    rawData: row,
   };
 };
 
@@ -313,8 +332,14 @@ export const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
 export const applyMapping = (rows, mapping, dimConfig) =>
   rows.map((r, i) => {
     const p = buildProductFromRow(r, mapping, dimConfig, i);
-    if (p.length <= 0 || p.width <= 0 || p.height <= 0) {
+
+    // Strict truthy check: Dimensions must be strictly greater than 0
+    // This cannot be bypassed by NaN, null, or undefined
+    const hasValidDims = p.length > 0 && p.width > 0 && p.height > 0;
+
+    if (!hasValidDims) {
       return { ...p, status: 'skipped', skipReason: 'Missing Dimensions' };
     }
+
     return { ...p, status: 'new' };
   });

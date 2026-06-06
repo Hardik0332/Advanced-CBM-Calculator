@@ -4,6 +4,7 @@
  * Wires custom hooks (useTheme, useShipment) to UI components.
  * This file is intentionally lean — all logic lives in hooks, all UI in components.
  */
+import { useState } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { useShipment } from './hooks/useShipment';
 import Header from './components/layout/Header';
@@ -12,9 +13,11 @@ import ActiveShipment from './components/shipment/ActiveShipment';
 import ProductDirectory from './components/directory/ProductDirectory';
 import ManualAddModal from './components/modals/ManualAddModal';
 import ImportWizardModal from './components/modals/ImportWizardModal';
+import ProductSummaryModal from './components/modals/ProductSummaryModal';
 import { CheckCircleIcon } from './components/icons/Icons';
 
 function App() {
+  const [summaryData, setSummaryData] = useState(null);
   const { mode, isDark, setTheme } = useTheme();
   const {
     // Product directory
@@ -29,6 +32,7 @@ function App() {
     setImportOpen,
     manualAddOpen,
     setManualAddOpen,
+    editingProduct,
     importResult,
 
     // Form
@@ -56,7 +60,9 @@ function App() {
 
     // Handlers
     handleImportComplete,
-    handleManualAdd,
+    handleSaveProduct,
+    handleEditProduct,
+    handleDeleteProduct,
     handleProductClick,
     handleAddToShipment,
     handleRemove,
@@ -143,6 +149,9 @@ function App() {
             handleProductClick={handleProductClick}
             setManualAddOpen={setManualAddOpen}
             setImportOpen={setImportOpen}
+            handleEditProduct={handleEditProduct}
+            handleDeleteProduct={handleDeleteProduct}
+            setSummaryData={setSummaryData}
           />
         </div>
 
@@ -162,7 +171,13 @@ function App() {
       <ManualAddModal
         isOpen={manualAddOpen}
         onClose={() => setManualAddOpen(false)}
-        onSave={handleManualAdd}
+        onSave={handleSaveProduct}
+        editingProduct={editingProduct}
+      />
+      <ProductSummaryModal
+        isOpen={!!summaryData}
+        onClose={() => setSummaryData(null)}
+        data={summaryData}
       />
     </div>
   );

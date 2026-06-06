@@ -159,3 +159,54 @@ export const exportPDF = (
     `shipment${poNumber ? '_' + poNumber.replace(/\s+/g, '_') : ''}_${new Date().toISOString().slice(0, 10)}.pdf`
   );
 };
+
+/**
+ * Export raw product data to an Excel file.
+ * @param {Array|object} data - Either an array of products (catalog mode) or a single product (single mode).
+ */
+export const exportRawDataExcel = (data) => {
+  const isCatalogMode = Array.isArray(data);
+  let rows = [];
+
+  if (isCatalogMode) {
+    if (data.length === 0) return;
+    
+    // Extract all unique keys across all rawData objects
+    const allKeys = new Set();
+    data.forEach((product) => {
+      if (product.rawData) {
+        Object.keys(product.rawData).forEach((key) => allKeys.add(key));
+      }
+    });
+
+    const headers = Array.from(allKeys);
+    
+    rows = data.map((product) => {
+      const row = { 'Product Name': product.name };
+      const rawData = product.rawData || {};
+      headers.forEach(h => {
+        row[h] = rawData[h] !== null && rawData[h] !== undefined ? String(rawData[h]) : '';
+      });
+      return row;
+    });
+
+  } else {
+    // Single mode
+    if (!data.rawData) return;
+    const row = { 'Product Name': data.name };
+    Object.entries(data.rawData).forEach(([k, v]) => {
+      row[k] = v !== null && v !== undefined ? String(v) : '';
+    });
+    rows = [row];
+  }
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Raw Data Summary');
+  
+  const fileName = isCatalogMode 
+    ? `catalog_summary_${new Date().toISOString().slice(0, 10)}.xlsx`
+    : `product_summary_${(data.name || 'product').replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+  XLSX.writeFile(wb, fileName);
+};

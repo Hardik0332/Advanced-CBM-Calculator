@@ -1,55 +1,95 @@
 /**
  * ManualAddModal — Modal overlay for manually adding a product to the directory.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import FormInput from '../ui/FormInput';
 import { CloseIcon, CheckCircleIcon } from '../icons/Icons';
 import { IMPORT_COLORS, IMPORT_ICONS } from '../../utils/fileParser';
 
-const ManualAddModal = ({ isOpen, onClose, onSave }) => {
+const ManualAddModal = ({ isOpen, onClose, onSave, editingProduct }) => {
   const [f, setF] = useState({
     name: '',
-    length: 0,
-    width: 0,
-    height: 0,
+    length: '',
+    width: '',
+    height: '',
     unit: 'cm',
     packSize: 1,
-    netWeight: 0,
-    grossWeight: 0,
+    netWeight: '',
+    grossWeight: '',
   });
+
+  useEffect(() => {
+    if (editingProduct) {
+      setF({
+        name: editingProduct.name || '',
+        length: editingProduct.length || '',
+        width: editingProduct.width || '',
+        height: editingProduct.height || '',
+        unit: editingProduct.unit || 'cm',
+        packSize: editingProduct.packSize || 1,
+        netWeight: editingProduct.netWeightPerUnit || '',
+        grossWeight: editingProduct.grossWeightPerShipper || '',
+      });
+    } else {
+      setF({
+        name: '',
+        length: '',
+        width: '',
+        height: '',
+        unit: 'cm',
+        packSize: 1,
+        netWeight: '',
+        grossWeight: '',
+      });
+    }
+  }, [editingProduct, isOpen]);
 
   const up = (k, v) => setF((p) => ({ ...p, [k]: v }));
   const canSave = f.name.trim() && f.length > 0 && f.width > 0 && f.height > 0;
 
   const handleSave = () => {
-    const style =
-      IMPORT_COLORS[Math.floor(Math.random() * IMPORT_COLORS.length)];
-    const icon =
-      IMPORT_ICONS[Math.floor(Math.random() * IMPORT_ICONS.length)];
-    onSave({
-      id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      name: f.name.trim(),
-      description: 'Manually added',
-      icon,
-      color: style.color,
-      border: style.border,
-      unit: f.unit,
-      length: f.length,
-      width: f.width,
-      height: f.height,
-      packSize: f.packSize || 1,
-      netWeightPerUnit: f.netWeight,
-      grossWeightPerShipper: f.grossWeight,
-    });
+    if (editingProduct) {
+      onSave({
+        ...editingProduct,
+        name: f.name.trim(),
+        unit: f.unit,
+        length: Number(f.length) || 0,
+        width: Number(f.width) || 0,
+        height: Number(f.height) || 0,
+        packSize: Number(f.packSize) || 1,
+        netWeightPerUnit: Number(f.netWeight) || 0,
+        grossWeightPerShipper: Number(f.grossWeight) || 0,
+      });
+    } else {
+      const style =
+        IMPORT_COLORS[Math.floor(Math.random() * IMPORT_COLORS.length)];
+      const icon =
+        IMPORT_ICONS[Math.floor(Math.random() * IMPORT_ICONS.length)];
+      onSave({
+        id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        name: f.name.trim(),
+        description: 'Manually added',
+        icon,
+        color: style.color,
+        border: style.border,
+        unit: f.unit,
+        length: Number(f.length) || 0,
+        width: Number(f.width) || 0,
+        height: Number(f.height) || 0,
+        packSize: Number(f.packSize) || 1,
+        netWeightPerUnit: Number(f.netWeight) || 0,
+        grossWeightPerShipper: Number(f.grossWeight) || 0,
+      });
+    }
     setF({
       name: '',
-      length: 0,
-      width: 0,
-      height: 0,
+      length: '',
+      width: '',
+      height: '',
       unit: 'cm',
       packSize: 1,
-      netWeight: 0,
-      grossWeight: 0,
+      netWeight: '',
+      grossWeight: '',
     });
     onClose();
   };
@@ -68,7 +108,7 @@ const ManualAddModal = ({ isOpen, onClose, onSave }) => {
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
           <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">
-            ➕ Add Product Manually
+            {editingProduct ? '✏️ Edit Product' : '➕ Add Product Manually'}
           </h2>
           <button
             onClick={onClose}
@@ -109,7 +149,7 @@ const ManualAddModal = ({ isOpen, onClose, onSave }) => {
             />
           </div>
           <div className="grid grid-cols-5 gap-1.5">
-            {['cm', 'mm', 'inches', 'feet', 'meters'].map((u) => (
+            {['mm', 'cm', 'inches', 'feet', 'meters'].map((u) => (
               <button
                 key={u}
                 type="button"
@@ -157,7 +197,7 @@ const ManualAddModal = ({ isOpen, onClose, onSave }) => {
                   : 'bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-600'
               }`}
           >
-            <CheckCircleIcon /> Save to Directory
+            <CheckCircleIcon /> {editingProduct ? 'Save Changes' : 'Save to Directory'}
           </button>
         </div>
       </div>

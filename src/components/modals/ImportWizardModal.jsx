@@ -111,6 +111,15 @@ const FileUploadStep = ({ onFileParsed }) => {
     });
   };
 
+  // Pre-compute all sheet headers once when parsedFile changes — avoids re-parsing on every render
+  const sheetInfos = useMemo(() => {
+    if (!parsedFile?.sheetNames) return [];
+    return parsedFile.sheetNames.map((name) => {
+      const { headers } = parsedFile.parseSheet(name);
+      return { name, headers };
+    });
+  }, [parsedFile]);
+
   return (
     <div className="fade-in space-y-4">
       {/* Sheet selector — shown only for multi-sheet workbooks */}
@@ -124,30 +133,27 @@ const FileUploadStep = ({ onFileParsed }) => {
             — pick one to import
           </p>
           <div className="flex flex-col gap-2 mb-4">
-            {parsedFile.sheetNames.map((name) => {
-              const { headers } = parsedFile.parseSheet(name);
-              return (
-                <button
-                  key={name}
-                  type="button"
-                  onClick={() => setSelectedSheet(name)}
-                  className={`w-full text-left px-4 py-3 rounded-xl border text-sm font-semibold flex items-center justify-between gap-2
-                    ${
-                      selectedSheet === name
-                        ? 'bg-indigo-100 dark:bg-indigo-900/60 border-indigo-400 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300'
-                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:border-indigo-300'
-                    }`}
-                >
-                  <span>📄 {name}</span>
-                  <span className="text-[11px] font-normal text-slate-400 dark:text-slate-500 truncate">
-                    {headers.length} columns
-                    {headers.length > 0
-                      ? `: ${headers.slice(0, 4).join(', ')}${headers.length > 4 ? ` +${headers.length - 4} more` : ''}`
-                      : ' (empty)'}
-                  </span>
-                </button>
-              );
-            })}
+            {sheetInfos.map(({ name, headers }) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => setSelectedSheet(name)}
+                className={`w-full text-left px-4 py-3 rounded-xl border text-sm font-semibold flex items-center justify-between gap-2
+                  ${
+                    selectedSheet === name
+                      ? 'bg-indigo-100 dark:bg-indigo-900/60 border-indigo-400 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300'
+                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:border-indigo-300'
+                  }`}
+              >
+                <span>📄 {name}</span>
+                <span className="text-[11px] font-normal text-slate-400 dark:text-slate-500 truncate">
+                  {headers.length} columns
+                  {headers.length > 0
+                    ? `: ${headers.slice(0, 4).join(', ')}${headers.length > 4 ? ` +${headers.length - 4} more` : ''}`
+                    : ' (empty)'}
+                </span>
+              </button>
+            ))}
           </div>
           <button
             onClick={handleSheetConfirm}
@@ -258,6 +264,7 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
     length: autoMap.mapping.length || '',
     width: autoMap.mapping.width || '',
     height: autoMap.mapping.height || '',
+    cbm: autoMap.mapping.cbm || '',
     packSize: autoMap.mapping.packSize || '',
     netWeight: autoMap.mapping.netWeight || '',
     grossWeight: autoMap.mapping.grossWeight || '',
@@ -276,8 +283,8 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
   const canProceed =
     mapping.name &&
     (combinedDim
-      ? dimColumn
-      : mapping.length && mapping.width && mapping.height);
+      ? !!dimColumn
+      : (!!mapping.length && !!mapping.width && !!mapping.height) || !!mapping.cbm);
 
   const handleNext = () => {
     const dimConfig = {
@@ -305,13 +312,15 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
          : 'border-slate-200 dark:border-slate-600/70'
      }`;
 
+  const dimsMapped = !!mapping.length && !!mapping.width && !!mapping.height;
   const fields = [
     { key: 'name', label: 'Product Name', required: true, icon: '🏷️' },
     ...(!combinedDim
       ? [
-          { key: 'length', label: 'Length', required: true, icon: '📏' },
-          { key: 'width', label: 'Width', required: true, icon: '📐' },
-          { key: 'height', label: 'Height', required: true, icon: '📦' },
+          { key: 'length', label: 'Length', required: !mapping.cbm, icon: '📏' },
+          { key: 'width', label: 'Width', required: !mapping.cbm, icon: '📐' },
+          { key: 'height', label: 'Height', required: !mapping.cbm, icon: '📦' },
+          { key: 'cbm', label: 'CBM (pre-calc)', required: !dimsMapped, icon: '🔷' },
         ]
       : []),
     { key: 'packSize', label: 'Pack Size', required: false, icon: '📋' },
@@ -445,7 +454,7 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
           📐 Dimension Unit in this file
         </p>
         <div className="grid grid-cols-5 gap-2">
-          {['cm', 'mm', 'inches', 'feet', 'meters'].map((u) => (
+          {['mm', 'cm', 'inches', 'feet', 'meters'].map((u) => (
             <button
               key={u}
               type="button"

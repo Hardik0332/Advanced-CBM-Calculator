@@ -13,14 +13,17 @@ const ProductDirectory = ({
   handleProductClick,
   setManualAddOpen,
   setImportOpen,
+  handleEditProduct,
+  handleDeleteProduct,
+  setSummaryData,
 }) => {
   const panelCls = 'glass rounded-2xl shadow-card dark:shadow-card-dark';
 
   return (
     <section className="lg:col-span-3 fade-in" style={{ animationDelay: '0.22s' }}>
-      <div className={`${panelCls} p-5`}>
-        <div className="flex items-center justify-between mb-3 gap-2">
-          <div className="flex items-center gap-2 min-w-0">
+      <div className={`${panelCls} p-4 sm:p-5`}>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2 max-w-full">
             <div className="w-8 h-8 rounded-lg bg-violet-100 dark:bg-violet-900/50 flex items-center justify-center flex-shrink-0">
               <svg
                 className="w-4 h-4 text-violet-600 dark:text-violet-400 no-theme-transition"
@@ -40,7 +43,14 @@ const ProductDirectory = ({
               Product Directory
             </h2>
           </div>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={() => setSummaryData(products)}
+              title="Catalog Summary"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/30"
+            >
+              📋 Summary
+            </button>
             <button
               id="manual-add-btn"
               onClick={() => setManualAddOpen(true)}
@@ -117,11 +127,11 @@ const ProductDirectory = ({
                   .map((product) => {
                     const isActive = activeProductId === product.id;
                     return (
-                      <button
+                      <div
                         key={product.id}
                         id={`product-${product.id}`}
                         onClick={() => handleProductClick(product)}
-                        className={`w-full max-w-full text-left rounded-xl p-3.5 group/card
+                        className={`w-full max-w-full text-left rounded-xl p-3.5 group/card cursor-pointer
                           ${
                             isActive
                               ? `bg-gradient-to-r ${product.color} dark:from-indigo-950/60 dark:to-violet-950/40 border ${product.border} dark:border-indigo-700/60 shadow-glow`
@@ -143,9 +153,9 @@ const ProductDirectory = ({
                               </p>
                             </div>
                           </div>
-                          <span className="text-slate-400 dark:text-slate-500 flex-shrink-0">
+                          <div className="text-slate-400 dark:text-slate-500 flex-shrink-0 flex items-center gap-1">
                             <ChevronIcon />
-                          </span>
+                          </div>
                         </div>
                         {isActive && (
                           <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
@@ -180,9 +190,41 @@ const ProductDirectory = ({
                                 </span>
                               </div>
                             </div>
+                            <div className="flex justify-end gap-2 mt-3 pt-2.5 border-t border-slate-200/60 dark:border-slate-700/60">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSummaryData(product);
+                                }}
+                                className="px-2.5 py-1 rounded bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-[10px] font-bold text-indigo-700 dark:text-indigo-400 border border-indigo-200/80 dark:border-indigo-800/80 active:scale-[0.97]"
+                              >
+                                ℹ️ Summary
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditProduct(product);
+                                }}
+                                className="px-2.5 py-1 rounded bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 text-[10px] font-bold text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 active:scale-[0.97]"
+                              >
+                                ✏️ Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteProduct(product.id);
+                                }}
+                                className="px-2.5 py-1 rounded bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/30 text-[10px] font-bold text-rose-600 dark:text-rose-400 border border-rose-200/80 dark:border-rose-800/80 active:scale-[0.97]"
+                              >
+                                🗑️ Delete
+                              </button>
+                            </div>
                           </div>
                         )}
-                      </button>
+                      </div>
                     );
                   })
               )}

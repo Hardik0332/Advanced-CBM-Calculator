@@ -4,20 +4,21 @@
  * This hook encapsulates: product directory, shipment items, the CBM form,
  * totals computation, freight/container calculations, and all CRUD operations.
  */
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { calcCBM, CONTAINERS } from '../utils/calculations';
 import { mergeProducts } from '../utils/deduplication';
 
 const EMPTY_FORM = {
   unit: 'cm',
-  length: 0,
-  width: 0,
-  height: 0,
+  length: '',
+  width: '',
+  height: '',
   packSize: 1,
-  netWeight: 0,
-  grossWeight: 0,
+  netWeight: '',
+  grossWeight: '',
   name: '',
-  totalPcs: 0,
+  totalPcs: '',
+  presetCBM: '',  // for products with pre-calculated CBM (no L/W/H dims)
 };
 
 export function useShipment() {
@@ -42,6 +43,7 @@ export function useShipment() {
   /* ── Modal state ── */
   const [importOpen, setImportOpen] = useState(false);
   const [manualAddOpen, setManualAddOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
   const [importResult, setImportResult] = useState(null);
 
   /* ── Product directory search ── */
@@ -57,7 +59,6 @@ export function useShipment() {
   const [activeProductId, setActiveProductId] = useState(null);
   const [flashId, setFlashId] = useState(null);
   const [unitSwitchWarning, setUnitSwitchWarning] = useState(false);
-  const prevUnitRef = useRef(form.unit);
 
   /* ── Shipment items — persisted in localStorage ── */
   const [shipment, setShipment] = useState(() => {
@@ -107,39 +108,85 @@ export function useShipment() {
     setImportOpen(false);
   }, []);
 
-  /* ── Manual add handler ── */
-  const handleManualAdd = useCallback((product) => {
-    setProducts((prev) => {
-      const { nextProducts } = mergeProducts(prev, [product]);
-      return nextProducts;
-    });
+  /* ── Save/Edit/Delete product handlers ── */
+  const handleSaveProduct = useCallback((savedProduct) => {
+    if (editingProduct) {
+      setProducts((prev) =>
+        prev.map((p) => (p.id === editingProduct.id ? savedProduct : p))
+      );
+      if (activeProductId === editingProduct.id) {
+        setForm({
+          unit: savedProduct.unit,
+          length: savedProduct.length,
+          width: savedProduct.width,
+          height: savedProduct.height,
+          packSize: savedProduct.packSize,
+          netWeight: (savedProduct.netWeightPerUnit || 0) * (savedProduct.packSize || 1),
+          grossWeight: savedProduct.grossWeightPerShipper,
+          name: savedProduct.name,
+          totalPcs: 0,
+          presetCBM:
+            !savedProduct.length && !savedProduct.width && !savedProduct.height
+              ? savedProduct.cbmPerShipper || 0
+              : 0,
+        });
+      }
+      setEditingProduct(null);
+    } else {
+      setProducts((prev) => {
+        const { nextProducts } = mergeProducts(prev, [savedProduct]);
+        return nextProducts;
+      });
+    }
+  }, [editingProduct, activeProductId]);
+
+  const handleEditProduct = useCallback((product) => {
+    setEditingProduct(product);
+    setManualAddOpen(true);
   }, []);
+
+  const handleDeleteProduct = useCallback((id) => {
+    if (window.confirm('Delete this product from directory?')) {
+      setProducts((prev) => prev.filter((p) => p.id !== id));
+      if (activeProductId === id) {
+        setActiveProductId(null);
+        setForm({ ...EMPTY_FORM });
+      }
+    }
+  }, [activeProductId]);
 
   /* ── Product click → populate form ── */
   const handleProductClick = useCallback((product) => {
-    setActiveProductId(product.id);
-    setForm({
-      unit: product.unit,
-      length: product.length,
-      width: product.width,
-      height: product.height,
-      packSize: product.packSize,
-      netWeight: product.netWeightPerUnit,
-      grossWeight: product.grossWeightPerShipper,
-      name: product.name,
-      totalPcs: 0,
-    });
-  }, []);
+    if (activeProductId === product.id) {
+      setActiveProductId(null);
+      setForm({ ...EMPTY_FORM });
+    } else {
+      setActiveProductId(product.id);
+      setForm({
+        unit: product.unit,
+        length: product.length,
+        width: product.width,
+        height: product.height,
+        packSize: product.packSize,
+        netWeight: (product.netWeightPerUnit || 0) * (product.packSize || 1),
+        grossWeight: product.grossWeightPerShipper,
+        name: product.name,
+        totalPcs: 0,
+        presetCBM:
+          !product.length && !product.width && !product.height
+            ? product.cbmPerShipper || 0
+            : 0,
+      });
+    }
+  }, [activeProductId]);
 
   /* ── Add item to shipment ── */
   const handleAddToShipment = useCallback(() => {
-    if (form.length <= 0 || form.width <= 0 || form.height <= 0) return;
-    const cbmPerShipper = calcCBM(
-      form.length,
-      form.width,
-      form.height,
-      form.unit
-    );
+    const hasDims = form.length > 0 && form.width > 0 && form.height > 0;
+    if (!hasDims && !form.presetCBM) return;
+    const cbmPerShipper = hasDims
+      ? calcCBM(form.length, form.width, form.height, form.unit)
+      : form.presetCBM;
     const derivedShippers =
       form.totalPcs > 0 && form.packSize > 0
         ? Math.ceil(form.totalPcs / form.packSize)
@@ -148,12 +195,12 @@ export function useShipment() {
       id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       name: form.name || 'Custom Item',
       unit: form.unit,
-      length: form.length,
-      width: form.width,
-      height: form.height,
-      packSize: form.packSize,
-      netWeightPerUnit: form.netWeight,
-      grossWeightPerShipper: form.grossWeight,
+      length: Number(form.length) || 0,
+      width: Number(form.width) || 0,
+      height: Number(form.height) || 0,
+      packSize: Number(form.packSize) || 1,
+      netWeightPerUnit: (Number(form.netWeight) || 0) / (Number(form.packSize) || 1),
+      grossWeightPerShipper: Number(form.grossWeight) || 0,
       cbmPerShipper,
       quantity: derivedShippers,
     };
@@ -190,10 +237,14 @@ export function useShipment() {
       width: item.width,
       height: item.height,
       packSize: item.packSize,
-      netWeight: item.netWeightPerUnit,
+      netWeight: (item.netWeightPerUnit || 0) * (item.packSize || 1),
       grossWeight: item.grossWeightPerShipper,
       name: item.name,
       totalPcs: 0,
+      presetCBM:
+        !item.length && !item.width && !item.height
+          ? item.cbmPerShipper || 0
+          : 0,
     });
     setShipment((p) => p.filter((i) => i.id !== item.id));
     setActiveProductId(null);
@@ -250,20 +301,20 @@ export function useShipment() {
     return Math.min(100, (totals.cbm / cap) * 100);
   }, [totals.cbm, containerType]);
 
-  const previewCBM = useMemo(
-    () =>
-      form.length > 0 && form.width > 0 && form.height > 0
-        ? calcCBM(form.length, form.width, form.height, form.unit)
-        : 0,
-    [form.length, form.width, form.height, form.unit]
-  );
+  const previewCBM = useMemo(() => {
+    if (form.length > 0 && form.width > 0 && form.height > 0)
+      return calcCBM(form.length, form.width, form.height, form.unit);
+    if (form.presetCBM > 0) return form.presetCBM;
+    return 0;
+  }, [form.length, form.width, form.height, form.unit, form.presetCBM]);
 
-  const canAdd = form.length > 0 && form.width > 0 && form.height > 0;
+  const canAdd =
+    (form.length > 0 && form.width > 0 && form.height > 0) ||
+    form.presetCBM > 0;
 
   return {
     // Product directory
     products,
-    setProducts,
     filteredProducts,
     productSearch,
     setProductSearch,
@@ -274,6 +325,7 @@ export function useShipment() {
     setImportOpen,
     manualAddOpen,
     setManualAddOpen,
+    editingProduct,
     importResult,
 
     // Form
@@ -301,7 +353,9 @@ export function useShipment() {
 
     // Handlers
     handleImportComplete,
-    handleManualAdd,
+    handleSaveProduct,
+    handleEditProduct,
+    handleDeleteProduct,
     handleProductClick,
     handleAddToShipment,
     handleRemove,

@@ -16,7 +16,7 @@ const CustomCBMForm = ({
 
   return (
     <section className="lg:col-span-3 fade-in" style={{ animationDelay: '0.05s' }}>
-      <div className={`${panelCls} p-5`}>
+      <div className={`${panelCls} p-4 sm:p-5`}>
         <div className="flex items-center gap-2 mb-5">
           <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/60 flex items-center justify-center flex-shrink-0">
             <svg
@@ -49,16 +49,15 @@ const CustomCBMForm = ({
             Unit
           </label>
           <div className="grid grid-cols-5 gap-1.5">
-            {['cm', 'mm', 'inches', 'feet', 'meters'].map((u) => (
+            {['mm', 'cm', 'inches', 'feet', 'meters'].map((u) => (
               <button
                 key={u}
                 id={`unit-${u}`}
                 onClick={() => updateForm('unit', u)}
                 className={`py-2 px-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide max-w-full truncate
-                  ${
-                    form.unit === u
-                      ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-600 shadow-glow'
-                      : 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500'
+                  ${form.unit === u
+                    ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-600 shadow-glow'
+                    : 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500'
                   }`}
               >
                 {u}
@@ -79,7 +78,7 @@ const CustomCBMForm = ({
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-2 mb-4">
+        <div className="grid grid-cols-1 min-[400px]:grid-cols-3 gap-2 mb-4">
           <FormInput
             id="dim-length"
             label="L"
@@ -106,7 +105,7 @@ const CustomCBMForm = ({
         <div className="mb-4 space-y-2">
           <FormInput
             id="pack-size"
-            label="Pack Size (pcs/shipper)"
+            label="Quantity Per Shipper"
             value={form.packSize}
             onChange={(v) => updateForm('packSize', v)}
             min="1"
@@ -115,7 +114,7 @@ const CustomCBMForm = ({
           />
           <FormInput
             id="total-pcs"
-            label="Total Pcs (optional)"
+            label="Total Pcs"
             value={form.totalPcs || ''}
             onChange={(v) => updateForm('totalPcs', v)}
             min="0"
@@ -134,10 +133,10 @@ const CustomCBMForm = ({
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-2 mb-5">
+        <div className="grid grid-cols-2 gap-2 mb-2">
           <FormInput
             id="net-weight"
-            label="Net Wt/Unit"
+            label="Net Wt/Shipper"
             value={form.netWeight}
             onChange={(v) => updateForm('netWeight', v)}
             suffix="kg"
@@ -151,11 +150,33 @@ const CustomCBMForm = ({
           />
         </div>
 
+        {(Number(form.netWeight) > 0 || Number(form.grossWeight) > 0) && (
+          <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 mb-5 fade-in">
+            <div className="flex flex-col">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">Total Net Wt</span>
+              <span className="text-sm font-bold font-mono text-slate-700 dark:text-slate-300">
+                {((Number(form.netWeight) || 0) * (Number(form.totalPcs) > 0 && Number(form.packSize) > 0 ? Math.ceil(Number(form.totalPcs) / Number(form.packSize)) : 1)).toFixed(2)} kg
+              </span>
+            </div>
+            <div className="flex flex-col items-end">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">Total Gross Wt</span>
+              <span className="text-sm font-bold font-mono text-slate-700 dark:text-slate-300">
+                {((Number(form.grossWeight) || 0) * (Number(form.totalPcs) > 0 && Number(form.packSize) > 0 ? Math.ceil(Number(form.totalPcs) / Number(form.packSize)) : 1)).toFixed(2)} kg
+              </span>
+            </div>
+          </div>
+        )}
+
         {previewCBM > 0 && (
           <div className="mb-4 p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-800 fade-in">
             <div className="flex justify-between items-center gap-2">
-              <span className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+              <span className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold flex items-center gap-1.5">
                 Volume Preview
+                {form.presetCBM > 0 && !form.length && !form.width && !form.height && (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-violet-100 dark:bg-violet-900/50 text-violet-600 dark:text-violet-400 border border-violet-200 dark:border-violet-700 uppercase tracking-wide">
+                    pre-calc
+                  </span>
+                )}
               </span>
               <span className="text-base font-bold font-mono text-indigo-600 dark:text-indigo-400 tabular-nums">
                 {previewCBM.toFixed(6)} m³
@@ -169,10 +190,9 @@ const CustomCBMForm = ({
           onClick={handleAddToShipment}
           disabled={!canAdd}
           className={`w-full max-w-full py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2
-            ${
-              canAdd
-                ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white hover:from-indigo-500 hover:to-violet-500 hover:shadow-glow active:scale-[0.98]'
-                : 'bg-slate-100 dark:bg-slate-700/50 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-200 dark:border-slate-600'
+            ${canAdd
+              ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white hover:from-indigo-500 hover:to-violet-500 hover:shadow-glow active:scale-[0.98]'
+              : 'bg-slate-100 dark:bg-slate-700/50 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-200 dark:border-slate-600'
             }`}
         >
           <PlusIcon /> Add to Shipment
