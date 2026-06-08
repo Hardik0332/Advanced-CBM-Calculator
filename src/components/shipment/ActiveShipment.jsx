@@ -14,6 +14,33 @@ import {
 import { CONTAINERS } from '../../utils/calculations';
 import { exportExcel, exportPDF } from '../../utils/exporting';
 
+const colorStyles = {
+  indigo: {
+    bg: 'from-indigo-50 to-indigo-100/50 dark:from-indigo-950/40 dark:to-indigo-900/20',
+    border: 'border-indigo-200 dark:border-indigo-800/50',
+    text: 'text-indigo-600 dark:text-indigo-400',
+    icon: 'text-indigo-500 dark:text-indigo-400',
+  },
+  amber: {
+    bg: 'from-amber-50 to-amber-100/50 dark:from-amber-950/40 dark:to-amber-900/20',
+    border: 'border-amber-200 dark:border-amber-800/50',
+    text: 'text-amber-600 dark:text-amber-400',
+    icon: 'text-amber-500 dark:text-amber-400',
+  },
+  cyan: {
+    bg: 'from-cyan-50 to-cyan-100/50 dark:from-cyan-950/40 dark:to-cyan-900/20',
+    border: 'border-cyan-200 dark:border-cyan-800/50',
+    text: 'text-cyan-600 dark:text-cyan-400',
+    icon: 'text-cyan-500 dark:text-cyan-400',
+  },
+  emerald: {
+    bg: 'from-emerald-50 to-emerald-100/50 dark:from-emerald-950/40 dark:to-emerald-900/20',
+    border: 'border-emerald-200 dark:border-emerald-800/50',
+    text: 'text-emerald-600 dark:text-emerald-400',
+    icon: 'text-emerald-500 dark:text-emerald-400',
+  },
+};
+
 const ActiveShipment = ({
   shipment,
   flashId,
@@ -130,8 +157,12 @@ const ActiveShipment = ({
                           {item.name}
                         </h3>
                         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                          {item.length}×{item.width}×{item.height} {item.unit} ·{' '}
-                          {item.packSize} pcs/shipper
+                          {item.length || item.width || item.height
+                            ? `${item.length}×${item.width}×${item.height} ${item.unit}`
+                            : `pre-calc ${item.cbmPerShipper < 0.001
+                              ? item.cbmPerShipper.toFixed(5)
+                              : item.cbmPerShipper.toFixed(3)} m³`
+                          }{' '}· {item.packSize} pcs/shipper
                         </p>
                       </div>
                       {/* Action icons: Edit, Copy, Delete */}
@@ -168,18 +199,26 @@ const ActiveShipment = ({
                       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 sm:gap-4">
 
                         {/* Stats Grid - Locks to 4 columns on mobile so text doesn't squish */}
-                        <div className="grid grid-cols-4 gap-2 w-full sm:w-auto">
+                        <div className="grid grid-cols-4 gap-4 sm:gap-x-8 sm:gap-y-2 w-full sm:w-auto">
                           <div className="text-center sm:text-left">
                             <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">CBM/ship</p>
-                            <p className="text-[11px] sm:text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 truncate">{item.cbmPerShipper.toFixed(4)}</p>
+                            <p className="text-[11px] sm:text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 truncate">
+                              {item.cbmPerShipper < 0.001
+                                ? item.cbmPerShipper.toFixed(5)
+                                : item.cbmPerShipper.toFixed(3)}
+                            </p>
                           </div>
                           <div className="text-center sm:text-left">
                             <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">Total CBM</p>
-                            <p className="text-[11px] sm:text-sm font-mono font-bold text-indigo-600 dark:text-indigo-400 truncate">{totalCBM.toFixed(4)}</p>
+                            <p className="text-[11px] sm:text-sm font-mono font-bold text-indigo-600 dark:text-indigo-400 truncate">
+                              {totalCBM < 0.001
+                                ? totalCBM.toFixed(5)
+                                : totalCBM.toFixed(3)}
+                            </p>
                           </div>
                           <div className="text-center sm:text-left">
                             <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">Wt (kg)</p>
-                            <p className="text-[11px] sm:text-sm font-mono font-bold text-amber-600 dark:text-amber-400 truncate">{totalWeight.toFixed(1)}</p>
+                            <p className="text-[11px] sm:text-sm font-mono font-bold text-amber-600 dark:text-amber-400 truncate">{totalWeight.toFixed(2)}</p>
                           </div>
                           {item.packSize > 1 ? (
                             <div className="text-center sm:text-left">
@@ -195,7 +234,8 @@ const ActiveShipment = ({
                             <button id={`qty-dec-${idx}`} onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
                               className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600 flex items-center justify-center text-base font-bold">−</button>
                             <input id={`qty-input-${idx}`} type="number" min="1" value={item.quantity}
-                              onChange={e => handleQuantityChange(item.id, parseInt(e.target.value) || 1)}
+                              onChange={e => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) handleQuantityChange(item.id, v); }}
+                              onBlur={e => { const v = parseInt(e.target.value, 10); if (isNaN(v) || v < 1) handleQuantityChange(item.id, 1); }}
                               className="w-12 h-8 mx-0.5 text-center bg-transparent border-none text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-0" />
                             <button id={`qty-inc-${idx}`} onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
                               className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600 flex items-center justify-center text-base font-bold">+</button>
@@ -217,17 +257,17 @@ const ActiveShipment = ({
             {/* 4 totals row */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
-                { label: 'Total CBM', value: totals.cbm.toFixed(4), color: 'indigo', icon: <BoxIcon /> },
-                { label: 'Gross Wt', value: totals.grossWeight.toFixed(1) + ' kg', color: 'amber', icon: <ScaleIcon /> },
-                { label: 'Net Wt', value: totals.netWeight.toFixed(1) + ' kg', color: 'cyan', icon: <ScaleIcon /> },
+                { label: 'Total CBM', value: totals.cbm.toFixed(2), color: 'indigo', icon: <BoxIcon /> },
+                { label: 'Gross Wt', value: totals.grossWeight.toFixed(2) + ' kg', color: 'amber', icon: <ScaleIcon /> },
+                { label: 'Net Wt', value: totals.netWeight.toFixed(2) + ' kg', color: 'cyan', icon: <ScaleIcon /> },
                 { label: 'Shippers', value: totals.shippers, color: 'emerald', icon: <TruckIcon /> },
               ].map((t) => (
                 <div
                   key={t.label}
-                  className={`rounded-xl bg-gradient-to-br from-${t.color}-50 to-${t.color}-100/50 dark:from-${t.color}-950/40 dark:to-${t.color}-900/20 border border-${t.color}-200 dark:border-${t.color}-800/50 p-2.5 text-center pulse-glow`}
+                  className={`rounded-xl bg-gradient-to-br ${colorStyles[t.color].bg} border ${colorStyles[t.color].border} p-2.5 text-center pulse-glow`}
                 >
                   <div
-                    className={`flex items-center justify-center gap-1 mb-1 text-${t.color}-500 dark:text-${t.color}-400`}
+                    className={`flex items-center justify-center gap-1 mb-1 ${colorStyles[t.color].icon}`}
                   >
                     {t.icon}
                     <p className="text-[8px] uppercase tracking-widest font-bold hidden sm:block">
@@ -235,7 +275,7 @@ const ActiveShipment = ({
                     </p>
                   </div>
                   <p
-                    className={`text-xs sm:text-base font-bold font-mono text-${t.color}-600 dark:text-${t.color}-400 tabular-nums truncate`}
+                    className={`text-xs sm:text-base font-bold font-mono ${colorStyles[t.color].text} tabular-nums truncate`}
                   >
                     {t.value}
                   </p>
@@ -283,12 +323,12 @@ const ActiveShipment = ({
                     : 'text-indigo-600 dark:text-indigo-400'
                     }`}
                 >
-                  {containerPct.toFixed(1)}%
+                  {containerPct.toFixed(2)}%
                 </span>
               </div>
-              {containerPct > 0 && containerPct < 100 && (
-                <div className="mt-2.5 text-center text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 py-1.5 rounded border border-amber-200/50 dark:border-amber-500/20 shadow-sm animate-pulse">
-                  Add more products to fill the container
+              {containerPct > 0 && containerPct < 50 && (
+                <div className="mt-2.5 text-center text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 py-1.5 rounded border border-amber-200/50 dark:border-amber-500/20 shadow-sm">
+                  {(CONTAINERS[containerType].cbm - totals.cbm).toFixed(2)} m³ remaining in container
                 </div>
               )}
             </div>
@@ -320,7 +360,7 @@ const ActiveShipment = ({
                     Volumetric
                   </p>
                   <p className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
-                    {volumetricWeight.toFixed(1)} kg
+                    {volumetricWeight.toFixed(2)} kg
                   </p>
                 </div>
                 <div>
@@ -328,7 +368,7 @@ const ActiveShipment = ({
                     Gross
                   </p>
                   <p className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
-                    {totals.grossWeight.toFixed(1)} kg
+                    {totals.grossWeight.toFixed(2)} kg
                   </p>
                 </div>
                 <div className="bg-indigo-50 dark:bg-indigo-950/40 rounded-lg p-1.5 border border-indigo-200 dark:border-indigo-800">
@@ -336,15 +376,14 @@ const ActiveShipment = ({
                     Chargeable
                   </p>
                   <p className="text-sm font-mono font-bold text-indigo-700 dark:text-indigo-300">
-                    {chargeableWeight.toFixed(1)} kg
+                    {chargeableWeight.toFixed(2)} kg
                   </p>
                 </div>
               </div>
               <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2 text-center">
                 {freightMode === 'air'
-                  ? 'Air: 1 CBM = 167 kg'
-                  : 'Ocean: 1 CBM = 1,000 kg'}{' '}
-                · Chargeable = max(Gross, Volumetric)
+                  ? 'Air: 1 CBM = 167 kg · Chargeable = max(Gross, Volumetric)'
+                  : 'Ocean: Chargeable = Gross Weight only'}
               </p>
             </div>
           </div>

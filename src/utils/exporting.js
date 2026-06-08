@@ -16,16 +16,16 @@ export const exportExcel = (shipment, totals, poNumber) => {
   const rows = shipment.map((item, i) => ({
     '#': i + 1,
     'Item Name': item.name,
-    L: item.length,
-    W: item.width,
-    H: item.height,
+    L: +item.length.toFixed(2),
+    W: +item.width.toFixed(2),
+    H: +item.height.toFixed(2),
     Unit: item.unit,
     'Pack Size': item.packSize,
     'Qty (Shippers)': item.quantity,
-    'Net Wt/Unit (kg)': item.netWeightPerUnit,
-    'Gross Wt/Shipper (kg)': item.grossWeightPerShipper,
-    'CBM/Shipper': +item.cbmPerShipper.toFixed(6),
-    'Total CBM': +(item.cbmPerShipper * item.quantity).toFixed(6),
+    'Net Wt/Unit (kg)': +item.netWeightPerUnit.toFixed(2),
+    'Gross Wt/Shipper (kg)': +item.grossWeightPerShipper.toFixed(2),
+    'CBM/Shipper': +item.cbmPerShipper.toFixed(2),
+    'Total CBM': +(item.cbmPerShipper * item.quantity).toFixed(2),
     'Total Gross Wt (kg)': +(
       item.grossWeightPerShipper * item.quantity
     ).toFixed(2),
@@ -44,7 +44,7 @@ export const exportExcel = (shipment, totals, poNumber) => {
     'Net Wt/Unit (kg)': '',
     'Gross Wt/Shipper (kg)': '',
     'CBM/Shipper': '',
-    'Total CBM': +totals.cbm.toFixed(6),
+    'Total CBM': +totals.cbm.toFixed(2),
     'Total Gross Wt (kg)': +totals.grossWeight.toFixed(2),
   });
 
@@ -101,15 +101,17 @@ export const exportPDF = (
   const tableData = shipment.map((item, i) => [
     i + 1,
     item.name,
-    `${item.length}×${item.width}×${item.height}`,
+    item.length || item.width || item.height
+      ? `${item.length}×${item.width}×${item.height}`
+      : 'pre-calc',
     item.unit,
     item.packSize,
     item.quantity,
     item.netWeightPerUnit.toFixed(2),
     item.grossWeightPerShipper.toFixed(2),
-    item.cbmPerShipper.toFixed(4),
-    (item.cbmPerShipper * item.quantity).toFixed(4),
-    (item.grossWeightPerShipper * item.quantity).toFixed(1),
+    item.cbmPerShipper.toFixed(2),
+    (item.cbmPerShipper * item.quantity).toFixed(2),
+    (item.grossWeightPerShipper * item.quantity).toFixed(2),
   ]);
 
   doc.autoTable({
@@ -122,8 +124,8 @@ export const exportPDF = (
         'Unit',
         'Pack',
         'Qty',
-        'Net Wt',
-        'Gross Wt',
+        'Net Wt/Unit',
+        'Gross Wt/Ship',
         'CBM/Ship',
         'Total CBM',
         'Total Wt',
@@ -147,10 +149,10 @@ export const exportPDF = (
   doc.setTextColor(0);
   const cont = CONTAINERS[containerType];
   const pct = cont
-    ? Math.min(100, (totals.cbm / cont.cbm) * 100).toFixed(1)
+    ? Math.min(100, (totals.cbm / cont.cbm) * 100).toFixed(2)
     : '—';
   doc.text(
-    `Total CBM: ${totals.cbm.toFixed(4)} m³  |  Gross Weight: ${totals.grossWeight.toFixed(1)} kg  |  Shippers: ${totals.shippers}  |  Container: ${cont ? cont.label : '—'} (${pct}%)`,
+    `Total CBM: ${totals.cbm.toFixed(2)} m³  |  Gross Weight: ${totals.grossWeight.toFixed(2)} kg  |  Shippers: ${totals.shippers}  |  Container: ${cont ? cont.label : '—'} (${pct}%)`,
     14,
     finalY
   );
@@ -158,6 +160,35 @@ export const exportPDF = (
   doc.save(
     `shipment${poNumber ? '_' + poNumber.replace(/\s+/g, '_') : ''}_${new Date().toISOString().slice(0, 10)}.pdf`
   );
+};
+
+const getDisplayRawData = (product) => {
+  if (product.rawData) return product.rawData;
+  return {
+    'Product Name': product.name || null,
+    'Length': product.length || null,
+    'Width': product.width || null,
+    'Height': product.height || null,
+    'Unit': product.unit || null,
+    'Pack Size': product.packSize || null,
+    'Net Wt': product.netWeightPerUnit || null,
+    'Gross Wt': product.grossWeightPerShipper || null,
+    'CBM': product.cbmPerShipper || null,
+  };
+};
+
+const formatValue = (v) => {
+  if (v === null || v === undefined || v === '') return '';
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? String(v) : v.toFixed(2);
+  }
+  if (typeof v === 'string' && !isNaN(v) && v.trim() !== '') {
+    const num = Number(v);
+    if (!Number.isInteger(num)) {
+      return num.toFixed(2);
+    }
+  }
+  return String(v);
 };
 
 /**
@@ -174,28 +205,28 @@ export const exportRawDataExcel = (data) => {
     // Extract all unique keys across all rawData objects
     const allKeys = new Set();
     data.forEach((product) => {
-      if (product.rawData) {
-        Object.keys(product.rawData).forEach((key) => allKeys.add(key));
-      }
+      const rawData = getDisplayRawData(product);
+      Object.keys(rawData).forEach((key) => allKeys.add(key));
     });
 
     const headers = Array.from(allKeys);
     
     rows = data.map((product) => {
       const row = { 'Product Name': product.name };
-      const rawData = product.rawData || {};
+      const rawData = getDisplayRawData(product);
       headers.forEach(h => {
-        row[h] = rawData[h] !== null && rawData[h] !== undefined ? String(rawData[h]) : '';
+        row[h] = rawData[h] !== null && rawData[h] !== undefined ? formatValue(rawData[h]) : '';
       });
       return row;
     });
 
   } else {
     // Single mode
-    if (!data.rawData) return;
+    const rawData = getDisplayRawData(data);
+    if (Object.keys(rawData).length === 0) return;
     const row = { 'Product Name': data.name };
-    Object.entries(data.rawData).forEach(([k, v]) => {
-      row[k] = v !== null && v !== undefined ? String(v) : '';
+    Object.entries(rawData).forEach(([k, v]) => {
+      row[k] = v !== null && v !== undefined ? formatValue(v) : '';
     });
     rows = [row];
   }

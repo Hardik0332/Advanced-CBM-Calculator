@@ -304,7 +304,7 @@ export const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
       : 0;
 
   return {
-    id: `import-${Date.now()}-${slotIndex}-${Math.random().toString(36).substr(2, 5)}`,
+    id: `import-${Date.now()}-${slotIndex}-${Math.random().toString(36).substring(2, 7)}`,
     name: String(row[mapping.name] || `Product ${slotIndex + 1}`).trim(),
     description: 'Imported product',
     icon: IMPORT_ICONS[slotIndex % IMPORT_ICONS.length],
@@ -314,8 +314,10 @@ export const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
     length,
     width,
     height,
+    packingString: String(row[mapping.packSize] || '').trim(),
     packSize: sanitizeNumeric(row[mapping.packSize]) || 1,
-    netWeightPerUnit: sanitizeNumeric(row[mapping.netWeight]),
+    netWeightPerUnit: sanitizeNumeric(row[mapping.netWeight]) / (sanitizeNumeric(row[mapping.packSize]) || 1),
+
     grossWeightPerShipper: sanitizeNumeric(row[mapping.grossWeight]),
     ...(preCalcCBM > 0 && { cbmPerShipper: preCalcCBM }),
     rawData: row,
@@ -329,17 +331,20 @@ export const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
  * @param {object} dimConfig - Dimension configuration.
  * @returns {Array} Array of product objects with status tags.
  */
-export const applyMapping = (rows, mapping, dimConfig) =>
-  rows.map((r, i) => {
+export const applyMapping = (rows, mapping, dimConfig) => {
+  // Pre-calc CBM is only valid when the user intentionally mapped NO dim columns.
+  // If ANY of L/W/H are mapped, rows with empty dims are still skipped.
+  const hasDimMapping =
+    !!mapping.length || !!mapping.width || !!mapping.height;
+
+  return rows.map((r, i) => {
     const p = buildProductFromRow(r, mapping, dimConfig, i);
-
-    // Strict truthy check: Dimensions must be strictly greater than 0
-    // This cannot be bypassed by NaN, null, or undefined
     const hasValidDims = p.length > 0 && p.width > 0 && p.height > 0;
+    const hasPreCalcCBM = !hasDimMapping && (p.cbmPerShipper || 0) > 0;
 
-    if (!hasValidDims) {
+    if (!hasValidDims && !hasPreCalcCBM) {
       return { ...p, status: 'skipped', skipReason: 'Missing Dimensions' };
     }
-
     return { ...p, status: 'new' };
   });
+};

@@ -1,13 +1,42 @@
 import { CloseIcon, FileDocIcon, ExcelIcon } from '../icons/Icons';
 import { exportRawDataExcel } from '../../utils/exporting';
 
+const getDisplayRawData = (product) => {
+  if (product.rawData) return product.rawData;
+  return {
+    'Product Name': product.name || null,
+    'Length': product.length || null,
+    'Width': product.width || null,
+    'Height': product.height || null,
+    'Unit': product.unit || null,
+    'Pack Size': product.packSize || null,
+    'Net Wt': product.netWeightPerUnit || null,
+    'Gross Wt': product.grossWeightPerShipper || null,
+    'CBM': product.cbmPerShipper || null,
+  };
+};
+
+const formatValue = (v) => {
+  if (v === null || v === undefined || v === '') return v;
+  if (typeof v === 'number') {
+    return Number.isInteger(v) ? String(v) : v.toFixed(2);
+  }
+  if (typeof v === 'string' && !isNaN(v) && v.trim() !== '') {
+    const num = Number(v);
+    if (!Number.isInteger(num)) {
+      return num.toFixed(2);
+    }
+  }
+  return String(v);
+};
+
 const ProductSummaryModal = ({ isOpen, onClose, data }) => {
   if (!isOpen || !data) return null;
 
   const isCatalogMode = Array.isArray(data);
 
   const renderSingleMode = () => {
-    const rawData = data.rawData || {};
+    const rawData = getDisplayRawData(data);
     const entries = Object.entries(rawData).filter(
       ([key, value]) => value !== null && value !== undefined && value !== ''
     );
@@ -23,7 +52,7 @@ const ProductSummaryModal = ({ isOpen, onClose, data }) => {
               {k}
             </div>
             <div className="text-sm text-slate-800 dark:text-slate-200 break-words font-medium">
-              {String(v)}
+              {formatValue(v)}
             </div>
           </div>
         ))}
@@ -48,26 +77,25 @@ const ProductSummaryModal = ({ isOpen, onClose, data }) => {
     // Extract all unique keys across all rawData objects
     const allKeys = new Set();
     data.forEach((product) => {
-      if (product.rawData) {
-        Object.keys(product.rawData).forEach((key) => allKeys.add(key));
-      }
+      const rawData = getDisplayRawData(product);
+      Object.keys(rawData).forEach((key) => allKeys.add(key));
     });
 
     const headers = Array.from(allKeys);
 
     return (
-      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative">
+      <div className="overflow-auto max-h-[50vh] sm:max-h-[60vh] rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative custom-scrollbar">
         <table className="w-full text-left border-collapse min-w-max whitespace-nowrap">
           <thead>
-            <tr className="bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
-              {/* FIXED: Made the header sticky, gave it a solid background, and constrained its width */}
-              <th className="p-3 text-xs font-bold text-slate-700 dark:text-slate-300 sticky left-0 z-20 bg-slate-100 dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 w-48 sm:w-64 max-w-[12rem] sm:max-w-[16rem] truncate">
+            <tr className="bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-30">
+              {/* FIXED: Made the header sticky top and left, gave it a solid background, and constrained its width */}
+              <th className="p-3 text-xs font-bold text-slate-700 dark:text-slate-300 sticky left-0 top-0 z-40 bg-slate-100 dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 w-48 sm:w-64 max-w-[12rem] sm:max-w-[16rem] truncate">
                 Product Name
               </th>
               {headers.map((h) => (
                 <th
                   key={h}
-                  className="p-3 text-xs font-bold text-slate-700 dark:text-slate-300 max-w-[200px] truncate"
+                  className="p-3 text-xs font-bold text-slate-700 dark:text-slate-300 max-w-[200px] truncate sticky top-0 z-30 bg-slate-100 dark:bg-slate-800"
                   title={h}
                 >
                   {h}
@@ -77,18 +105,24 @@ const ProductSummaryModal = ({ isOpen, onClose, data }) => {
           </thead>
           <tbody className="divide-y divide-slate-200 dark:divide-slate-700 bg-white/40 dark:bg-slate-900/40">
             {data.map((product, idx) => {
-              const rawData = product.rawData || {};
+              const rawData = getDisplayRawData(product);
               return (
                 <tr
                   key={product.id || idx}
                   className="hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors group"
                 >
-                  {/* FIXED: Made the name cell sticky with a solid background, constrained its width, and added truncation */}
                   <td
-                    className="p-3 text-sm text-slate-800 dark:text-slate-200 font-bold sticky left-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/80 border-r border-slate-200/50 dark:border-slate-700/50 max-w-[12rem] sm:max-w-[16rem] truncate shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
+                    className="p-3 text-sm text-slate-800 dark:text-slate-200 font-bold sticky left-0 z-10 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/80 border-r border-slate-200/50 dark:border-slate-700/50 max-w-[12rem] sm:max-w-[16rem] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
                     title={product.name}
                   >
-                    {product.name}
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="truncate">{product.name}</span>
+                      {!product.rawData && (
+                        <span className="flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600 uppercase tracking-wide">
+                          manual
+                        </span>
+                      )}
+                    </div>
                   </td>
                   {headers.map((h) => (
                     <td
@@ -99,7 +133,7 @@ const ProductSummaryModal = ({ isOpen, onClose, data }) => {
                       {rawData[h] !== null &&
                         rawData[h] !== undefined &&
                         rawData[h] !== ''
-                        ? String(rawData[h])
+                        ? formatValue(rawData[h])
                         : '-'}
                     </td>
                   ))}

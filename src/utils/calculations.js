@@ -30,10 +30,10 @@ export const calcCBM = (l, w, h, u) => {
 };
 
 /**
- * Standard shipping container definitions.
+ * Standard shipping container definitions (usable capacities).
  */
 export const CONTAINERS = {
-  '20ft': { label: "20' Standard", cbm: 33 },
-  '40ft': { label: "40' Standard", cbm: 67 },
-  '40hc': { label: "40' High Cube", cbm: 76 },
+  '20ft': { label: "20' Standard (Usable)", cbm: 28 },
+  '40ft': { label: "40' Standard (Usable)", cbm: 58 },
+  '40hc': { label: "40' High Cube (Usable)", cbm: 68 },
 };

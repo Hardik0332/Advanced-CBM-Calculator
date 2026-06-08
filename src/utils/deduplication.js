@@ -12,7 +12,7 @@
  * @returns {string} A pipe-delimited composite key.
  */
 export const compositeKey = (p) =>
-  `${p.name.trim().toLowerCase()}|${p.length}|${p.width}|${p.height}|${p.packSize}|${p.netWeightPerUnit}|${p.grossWeightPerShipper}`;
+  `${p.name.trim().toLowerCase()}|${p.length}|${p.width}|${p.height}|${p.packSize}|${p.netWeightPerUnit}|${p.grossWeightPerShipper}|${p.cbmPerShipper || 0}`;
 
 /**
  * Merge incoming products into existing, skipping exact duplicates.

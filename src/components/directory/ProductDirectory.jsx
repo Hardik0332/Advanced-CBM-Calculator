@@ -52,14 +52,6 @@ const ProductDirectory = ({
               📋 Summary
             </button>
             <button
-              id="manual-add-btn"
-              onClick={() => setManualAddOpen(true)}
-              title="Add manually"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/30"
-            >
-              ➕ Add
-            </button>
-            <button
               id="import-data-btn"
               onClick={() => setImportOpen(true)}
               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-indigo-600 to-violet-600 text-white hover:from-indigo-500 hover:to-violet-500 hover:shadow-glow active:scale-[0.96]"
@@ -107,7 +99,7 @@ const ProductDirectory = ({
               No products yet
             </p>
             <p className="text-xs text-slate-400 dark:text-slate-600 mt-1 max-w-[160px] break-words">
-              Click <strong>Import</strong> or <strong>Add</strong> to build your
+              Click <strong>Import</strong> to build your
               catalog
             </p>
           </div>
@@ -123,7 +115,26 @@ const ProductDirectory = ({
                 </p>
               ) : (
                 [...filteredProducts]
-                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .sort((a, b) => {
+                    if (!productSearch) return a.name.localeCompare(b.name);
+                    const q = productSearch.toLowerCase().trim();
+                    if (!q) return a.name.localeCompare(b.name);
+                    
+                    const aName = a.name.toLowerCase();
+                    const bName = b.name.toLowerCase();
+                    
+                    const aStarts = aName.startsWith(q);
+                    const bStarts = bName.startsWith(q);
+                    if (aStarts && !bStarts) return -1;
+                    if (!aStarts && bStarts) return 1;
+
+                    const aWord = aName.includes(` ${q}`);
+                    const bWord = bName.includes(` ${q}`);
+                    if (aWord && !bWord) return -1;
+                    if (!aWord && bWord) return 1;
+
+                    return a.name.localeCompare(b.name);
+                  })
                   .map((product) => {
                     const isActive = activeProductId === product.id;
                     return (
@@ -148,7 +159,7 @@ const ProductDirectory = ({
                                 {product.name}
                               </h3>
                               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                                {product.length}×{product.width}×{product.height}{' '}
+                                {Number(product.length).toFixed(2)}×{Number(product.width).toFixed(2)}×{Number(product.height).toFixed(2)}{' '}
                                 {product.unit}
                               </p>
                             </div>
@@ -162,8 +173,8 @@ const ProductDirectory = ({
                             <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
                               {[
                                 ['Pack', `${product.packSize} pcs`],
-                                ['Net Wt', `${product.netWeightPerUnit} kg`],
-                                ['Gross', `${product.grossWeightPerShipper} kg`],
+                                ['Net Wt', `${Number(product.netWeightPerUnit).toFixed(2)} kg`],
+                                ['Gross', `${Number(product.grossWeightPerShipper).toFixed(2)} kg`],
                                 ['Unit', product.unit.toUpperCase()],
                               ].map(([k, v]) => (
                                 <div key={k} className="flex justify-between gap-1">
@@ -185,7 +196,7 @@ const ProductDirectory = ({
                                     product.width,
                                     product.height,
                                     product.unit
-                                  ).toFixed(6)}{' '}
+                                  ).toFixed(2)}{' '}
                                   m³
                                 </span>
                               </div>

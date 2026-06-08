@@ -62,9 +62,11 @@ function App() {
     handleImportComplete,
     handleSaveProduct,
     handleEditProduct,
+    handleCloseManualModal,
     handleDeleteProduct,
     handleProductClick,
     handleAddToShipment,
+    handleAddToDirectory,
     handleRemove,
     handleQuantityChange,
     handleEditItem,
@@ -116,6 +118,10 @@ function App() {
             previewCBM={previewCBM}
             canAdd={canAdd}
             handleAddToShipment={handleAddToShipment}
+            handleAddToDirectory={handleAddToDirectory}
+            products={products}
+            handleProductClick={handleProductClick}
+            activeProductId={activeProductId}
           />
 
           {/* Middle: Active Shipment */}
@@ -170,7 +176,7 @@ function App() {
       />
       <ManualAddModal
         isOpen={manualAddOpen}
-        onClose={() => setManualAddOpen(false)}
+        onClose={handleCloseManualModal}
         onSave={handleSaveProduct}
         editingProduct={editingProduct}
       />

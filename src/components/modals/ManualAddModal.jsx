@@ -27,7 +27,9 @@ const ManualAddModal = ({ isOpen, onClose, onSave, editingProduct }) => {
         height: editingProduct.height || '',
         unit: editingProduct.unit || 'cm',
         packSize: editingProduct.packSize || 1,
-        netWeight: editingProduct.netWeightPerUnit || '',
+        netWeight: editingProduct.netWeightPerUnit
+          ? Number(editingProduct.netWeightPerUnit * (editingProduct.packSize || 1)).toFixed(2)
+          : '',
         grossWeight: editingProduct.grossWeightPerShipper || '',
       });
     } else {
@@ -48,6 +50,7 @@ const ManualAddModal = ({ isOpen, onClose, onSave, editingProduct }) => {
   const canSave = f.name.trim() && f.length > 0 && f.width > 0 && f.height > 0;
 
   const handleSave = () => {
+    const pSize = Number(f.packSize) || 1;
     if (editingProduct) {
       onSave({
         ...editingProduct,
@@ -56,8 +59,8 @@ const ManualAddModal = ({ isOpen, onClose, onSave, editingProduct }) => {
         length: Number(f.length) || 0,
         width: Number(f.width) || 0,
         height: Number(f.height) || 0,
-        packSize: Number(f.packSize) || 1,
-        netWeightPerUnit: Number(f.netWeight) || 0,
+        packSize: pSize,
+        netWeightPerUnit: (Number(f.netWeight) || 0) / pSize,
         grossWeightPerShipper: Number(f.grossWeight) || 0,
       });
     } else {
@@ -76,8 +79,8 @@ const ManualAddModal = ({ isOpen, onClose, onSave, editingProduct }) => {
         length: Number(f.length) || 0,
         width: Number(f.width) || 0,
         height: Number(f.height) || 0,
-        packSize: Number(f.packSize) || 1,
-        netWeightPerUnit: Number(f.netWeight) || 0,
+        packSize: pSize,
+        netWeightPerUnit: (Number(f.netWeight) || 0) / pSize,
         grossWeightPerShipper: Number(f.grossWeight) || 0,
       });
     }

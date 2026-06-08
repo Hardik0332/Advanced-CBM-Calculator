@@ -718,18 +718,13 @@ const DataPreviewStep = ({
                   <>
                     {visibleRows.slice(0, previewLimit).map((p, i) => {
                       const isSkipped = p.status === 'skipped';
-                      const cbm =
-                        !isSkipped &&
-                        p.length > 0 &&
-                        p.width > 0 &&
-                        p.height > 0
-                          ? calcCBM(
-                              p.length,
-                              p.width,
-                              p.height,
-                              p.unit || 'cm'
-                            ).toFixed(4)
-                          : 'N/A';
+                      const cbm = isSkipped
+                        ? 'N/A'
+                        : p.length > 0 && p.width > 0 && p.height > 0
+                          ? calcCBM(p.length, p.width, p.height, p.unit || 'cm').toFixed(2)
+                          : (p.cbmPerShipper || 0) > 0
+                            ? p.cbmPerShipper.toFixed(2)
+                            : 'N/A';
                       return (
                         <tr
                           key={i}

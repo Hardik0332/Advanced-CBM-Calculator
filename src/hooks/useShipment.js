@@ -7,6 +7,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { calcCBM, CONTAINERS } from '../utils/calculations';
 import { mergeProducts } from '../utils/deduplication';
+import { IMPORT_COLORS, IMPORT_ICONS } from '../utils/fileParser';
 
 const EMPTY_FORM = {
   unit: 'cm',
@@ -34,6 +35,7 @@ export function useShipment() {
 
   useEffect(() => {
     try {
+      // Keep rawData to ensure it is not lost on page reload.
       localStorage.setItem('cbm-products', JSON.stringify(products));
     } catch {
       /* storage full */
@@ -115,7 +117,7 @@ export function useShipment() {
         prev.map((p) => (p.id === editingProduct.id ? savedProduct : p))
       );
       if (activeProductId === editingProduct.id) {
-        setForm({
+        setForm((prev) => ({
           unit: savedProduct.unit,
           length: savedProduct.length,
           width: savedProduct.width,
@@ -124,12 +126,12 @@ export function useShipment() {
           netWeight: (savedProduct.netWeightPerUnit || 0) * (savedProduct.packSize || 1),
           grossWeight: savedProduct.grossWeightPerShipper,
           name: savedProduct.name,
-          totalPcs: 0,
+          totalPcs: prev.totalPcs,
           presetCBM:
             !savedProduct.length && !savedProduct.width && !savedProduct.height
               ? savedProduct.cbmPerShipper || 0
               : 0,
-        });
+        }));
       }
       setEditingProduct(null);
     } else {
@@ -143,6 +145,14 @@ export function useShipment() {
   const handleEditProduct = useCallback((product) => {
     setEditingProduct(product);
     setManualAddOpen(true);
+  }, []);
+
+  /* Closes the manual-add/edit modal AND always clears the editing target.
+     Without this, dismissing via backdrop leaves editingProduct set, so
+     the next "Add" click would re-open with the previous product pre-filled. */
+  const handleCloseManualModal = useCallback(() => {
+    setManualAddOpen(false);
+    setEditingProduct(null);
   }, []);
 
   const handleDeleteProduct = useCallback((id) => {
@@ -162,7 +172,7 @@ export function useShipment() {
       setForm({ ...EMPTY_FORM });
     } else {
       setActiveProductId(product.id);
-      setForm({
+      setForm((prev) => ({
         unit: product.unit,
         length: product.length,
         width: product.width,
@@ -171,42 +181,95 @@ export function useShipment() {
         netWeight: (product.netWeightPerUnit || 0) * (product.packSize || 1),
         grossWeight: product.grossWeightPerShipper,
         name: product.name,
-        totalPcs: 0,
+        totalPcs: prev.totalPcs,
         presetCBM:
           !product.length && !product.width && !product.height
             ? product.cbmPerShipper || 0
             : 0,
-      });
+      }));
     }
   }, [activeProductId]);
 
   /* ── Add item to shipment ── */
-  const handleAddToShipment = useCallback(() => {
-    const hasDims = form.length > 0 && form.width > 0 && form.height > 0;
-    if (!hasDims && !form.presetCBM) return;
+  /* ── Add item to shipment ── */
+  const handleAddToShipment = useCallback((overrides = {}) => {
+    const finalForm = { ...form, ...overrides };
+    const hasDims =
+      Number(finalForm.length) > 0 &&
+      Number(finalForm.width) > 0 &&
+      Number(finalForm.height) > 0;
+    const hasPreset = Number(finalForm.presetCBM) > 0;
+    if (!hasDims && !hasPreset) return;
     const cbmPerShipper = hasDims
-      ? calcCBM(form.length, form.width, form.height, form.unit)
-      : form.presetCBM;
+      ? calcCBM(finalForm.length, finalForm.width, finalForm.height, finalForm.unit)
+      : Number(finalForm.presetCBM) || 0;
     const derivedShippers =
-      form.totalPcs > 0 && form.packSize > 0
-        ? Math.ceil(form.totalPcs / form.packSize)
+      finalForm.totalPcs > 0 && finalForm.packSize > 0
+        ? Math.ceil(finalForm.totalPcs / finalForm.packSize)
         : 1;
     const newItem = {
       id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      name: form.name || 'Custom Item',
-      unit: form.unit,
-      length: Number(form.length) || 0,
-      width: Number(form.width) || 0,
-      height: Number(form.height) || 0,
-      packSize: Number(form.packSize) || 1,
-      netWeightPerUnit: (Number(form.netWeight) || 0) / (Number(form.packSize) || 1),
-      grossWeightPerShipper: Number(form.grossWeight) || 0,
+      name: finalForm.name || 'Custom Item',
+      unit: finalForm.unit,
+      length: Number(finalForm.length) || 0,
+      width: Number(finalForm.width) || 0,
+      height: Number(finalForm.height) || 0,
+      packSize: Number(finalForm.packSize) || 1,
+      netWeightPerUnit: (Number(finalForm.netWeight) || 0) / (Number(finalForm.packSize) || 1),
+      grossWeightPerShipper: Number(finalForm.grossWeight) || 0,
       cbmPerShipper,
       quantity: derivedShippers,
     };
     setShipment((p) => [...p, newItem]);
     setFlashId(newItem.id);
     setTimeout(() => setFlashId(null), 800);
+    setForm({ ...EMPTY_FORM });
+    setActiveProductId(null);
+    setUnitSwitchWarning(false);
+  }, [form]);
+
+  /* ── Add item to product directory ── */
+  const handleAddToDirectory = useCallback((overrides = {}) => {
+    const finalForm = { ...form, ...overrides };
+    const hasDims =
+      Number(finalForm.length) > 0 &&
+      Number(finalForm.width) > 0 &&
+      Number(finalForm.height) > 0;
+    const hasPreset = Number(finalForm.presetCBM) > 0;
+    if (!hasDims && !hasPreset) return;
+    const cbmPerShipper = hasDims
+      ? calcCBM(finalForm.length, finalForm.width, finalForm.height, finalForm.unit)
+      : Number(finalForm.presetCBM) || 0;
+
+    const style = IMPORT_COLORS[Math.floor(Math.random() * IMPORT_COLORS.length)];
+    const icon = IMPORT_ICONS[Math.floor(Math.random() * IMPORT_ICONS.length)];
+
+    const newProduct = {
+      id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      name: finalForm.name || 'Custom Item',
+      description: 'Manually added',
+      icon,
+      color: style.color,
+      border: style.border,
+      unit: finalForm.unit,
+      length: Number(finalForm.length) || 0,
+      width: Number(finalForm.width) || 0,
+      height: Number(finalForm.height) || 0,
+      packSize: Number(finalForm.packSize) || 1,
+      netWeightPerUnit: (Number(finalForm.netWeight) || 0) / (Number(finalForm.packSize) || 1),
+      grossWeightPerShipper: Number(finalForm.grossWeight) || 0,
+      cbmPerShipper,
+    };
+
+    // Check if we are currently editing a product, we should save it as a NEW product if user clicked "Add to Directory"
+    // Wait, handleSaveProduct will overwrite editingProduct if it's set. 
+    // We should bypass editing mode to ensure it creates a new entry if that's the intent, or just call mergeProducts directly.
+    setProducts((prev) => {
+      const { nextProducts } = mergeProducts(prev, [newProduct]);
+      return nextProducts;
+    });
+
+    // Optionally clear form or show success toast
     setForm({ ...EMPTY_FORM });
     setActiveProductId(null);
     setUnitSwitchWarning(false);
@@ -240,7 +303,7 @@ export function useShipment() {
       netWeight: (item.netWeightPerUnit || 0) * (item.packSize || 1),
       grossWeight: item.grossWeightPerShipper,
       name: item.name,
-      totalPcs: 0,
+      totalPcs: item.packSize * item.quantity,
       presetCBM:
         !item.length && !item.width && !item.height
           ? item.cbmPerShipper || 0
@@ -288,7 +351,7 @@ export function useShipment() {
 
   const volumetricWeight = useMemo(() => {
     if (freightMode === 'air') return totals.cbm * 167;
-    return totals.cbm * 1000; // ocean: 1 CBM = 1000 kg
+    return 0; // ocean has no volumetric weight; chargeable = gross weight only
   }, [totals.cbm, freightMode]);
 
   const chargeableWeight = useMemo(
@@ -302,15 +365,21 @@ export function useShipment() {
   }, [totals.cbm, containerType]);
 
   const previewCBM = useMemo(() => {
-    if (form.length > 0 && form.width > 0 && form.height > 0)
+    const hasDims =
+      Number(form.length) > 0 &&
+      Number(form.width) > 0 &&
+      Number(form.height) > 0;
+    if (hasDims)
       return calcCBM(form.length, form.width, form.height, form.unit);
-    if (form.presetCBM > 0) return form.presetCBM;
+    if (Number(form.presetCBM) > 0) return Number(form.presetCBM);
     return 0;
   }, [form.length, form.width, form.height, form.unit, form.presetCBM]);
 
   const canAdd =
-    (form.length > 0 && form.width > 0 && form.height > 0) ||
-    form.presetCBM > 0;
+    (Number(form.length) > 0 &&
+      Number(form.width) > 0 &&
+      Number(form.height) > 0) ||
+    Number(form.presetCBM) > 0;
 
   return {
     // Product directory
@@ -355,9 +424,11 @@ export function useShipment() {
     handleImportComplete,
     handleSaveProduct,
     handleEditProduct,
+    handleCloseManualModal,
     handleDeleteProduct,
     handleProductClick,
     handleAddToShipment,
+    handleAddToDirectory,
     handleRemove,
     handleQuantityChange,
     handleEditItem,
