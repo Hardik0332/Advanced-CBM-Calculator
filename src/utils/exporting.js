@@ -6,6 +6,15 @@ import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import { CONTAINERS } from './calculations';
 
+// Adaptive CBM formatter — prevents 0.00 for small pharmaceutical/medical items.
+// Uses more decimal places only when the value is too small for 2dp to be meaningful.
+const fmtCBM = (v) => {
+  if (!v || v === 0) return '0.0000';
+  if (v < 0.0001) return v.toFixed(6);
+  if (v < 0.01)   return v.toFixed(4);
+  return v.toFixed(2);
+};
+
 /**
  * Export shipment data to an Excel file.
  * @param {Array} shipment - Array of shipment items.
@@ -24,8 +33,8 @@ export const exportExcel = (shipment, totals, poNumber) => {
     'Qty (Shippers)': item.quantity,
     'Net Wt/Unit (kg)': +item.netWeightPerUnit.toFixed(2),
     'Gross Wt/Shipper (kg)': +item.grossWeightPerShipper.toFixed(2),
-    'CBM/Shipper': +item.cbmPerShipper.toFixed(2),
-    'Total CBM': +(item.cbmPerShipper * item.quantity).toFixed(2),
+    'CBM/Shipper': +fmtCBM(item.cbmPerShipper),
+    'Total CBM': +fmtCBM(item.cbmPerShipper * item.quantity),
     'Total Gross Wt (kg)': +(
       item.grossWeightPerShipper * item.quantity
     ).toFixed(2),
@@ -44,7 +53,7 @@ export const exportExcel = (shipment, totals, poNumber) => {
     'Net Wt/Unit (kg)': '',
     'Gross Wt/Shipper (kg)': '',
     'CBM/Shipper': '',
-    'Total CBM': +totals.cbm.toFixed(2),
+    'Total CBM': +fmtCBM(totals.cbm),
     'Total Gross Wt (kg)': +totals.grossWeight.toFixed(2),
   });
 
@@ -109,8 +118,8 @@ export const exportPDF = (
     item.quantity,
     item.netWeightPerUnit.toFixed(2),
     item.grossWeightPerShipper.toFixed(2),
-    item.cbmPerShipper.toFixed(2),
-    (item.cbmPerShipper * item.quantity).toFixed(2),
+    fmtCBM(item.cbmPerShipper),
+    fmtCBM(item.cbmPerShipper * item.quantity),
     (item.grossWeightPerShipper * item.quantity).toFixed(2),
   ]);
 
@@ -152,7 +161,7 @@ export const exportPDF = (
     ? Math.min(100, (totals.cbm / cont.cbm) * 100).toFixed(2)
     : '—';
   doc.text(
-    `Total CBM: ${totals.cbm.toFixed(2)} m³  |  Gross Weight: ${totals.grossWeight.toFixed(2)} kg  |  Shippers: ${totals.shippers}  |  Container: ${cont ? cont.label : '—'} (${pct}%)`,
+    `Total CBM: ${fmtCBM(totals.cbm)} m³  |  Gross Weight: ${totals.grossWeight.toFixed(2)} kg  |  Shippers: ${totals.shippers}  |  Container: ${cont ? cont.label : '—'} (${pct}%)`,
     14,
     finalY
   );

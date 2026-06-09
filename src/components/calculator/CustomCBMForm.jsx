@@ -13,6 +13,15 @@ import { flushSync } from 'react-dom';
 import FormInput from '../ui/FormInput';
 import { PlusIcon, WarningIcon } from '../icons/Icons';
 
+// Adaptive CBM formatter — prevents 0.00 for small pharmaceutical/medical items.
+// Uses more decimal places only when the value is too small for 2dp to be meaningful.
+const fmtCBM = (v) => {
+  if (!v || v === 0) return '0.0000';
+  if (v < 0.0001) return v.toFixed(6);
+  if (v < 0.01)   return v.toFixed(4);
+  return v.toFixed(2);
+};
+
 /* ─── small helpers ────────────────────────────────────────────────────────── */
 
 const PACK_MODES = [
@@ -276,9 +285,13 @@ const CustomCBMForm = ({
                   — Select a variant —
                 </option>
                 {availableVariants.map((v) => {
+                  // Show the raw packing description from the CSV (e.g. "10X100GM")
+                  // when available; fall back to numeric packSize + dimensions
+                  const hasDims = v.length > 0 && v.width > 0 && v.height > 0;
+                  const dimsStr = hasDims ? `${v.length}×${v.width}×${v.height} ${v.unit}` : '';
                   const label = v.packingString
-                    ? `${v.packingString} (${(Number(v.netWeightPerUnit) * Number(v.packSize)).toFixed(2)} kg)`
-                    : `${v.packSize} pcs (${(Number(v.netWeightPerUnit) * Number(v.packSize)).toFixed(2)} kg)`;
+                    ? `${v.packingString}${dimsStr ? ` · ${dimsStr}` : ''}`
+                    : `${v.packSize} pcs${dimsStr ? ` · ${dimsStr}` : ''}`;
                   return (
                     <option key={v.id} value={v.id} className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200">
                       {label}
@@ -567,7 +580,7 @@ const CustomCBMForm = ({
 
         {/* ── Volume preview ── */}
         {previewCBM > 0 && (
-          <div className="mb-4 p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-800 fade-in">
+          <div className="mb-2 p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-800 fade-in">
             <div className="flex justify-between items-center gap-2">
               <span className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold flex items-center gap-1.5">
                 Volume Preview
@@ -578,9 +591,44 @@ const CustomCBMForm = ({
                 )}
               </span>
               <span className="text-base font-bold font-mono text-indigo-600 dark:text-indigo-400 tabular-nums">
-                {previewCBM.toFixed(2)} m³
+                {fmtCBM(previewCBM)} m³
               </span>
             </div>
+          </div>
+        )}
+
+        {/* ── CBM breakdown ── */}
+        {previewCBM > 0 && (
+          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-800 mb-4 fade-in">
+            {(() => {
+              const effectivePack =
+                packMode === 'multiple' ? multiTotal : Number(form.packSize);
+              const shippers =
+                form.totalPcs > 0 && effectivePack > 0
+                  ? Math.ceil(Number(form.totalPcs) / effectivePack)
+                  : 1;
+              const totalCBM = previewCBM * shippers;
+              return (
+                <>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
+                      CBM / Shipper
+                    </span>
+                    <span className="text-sm font-bold font-mono text-slate-700 dark:text-slate-300">
+                      {fmtCBM(previewCBM)} m³
+                    </span>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
+                      Total CBM
+                    </span>
+                    <span className="text-sm font-bold font-mono text-indigo-600 dark:text-indigo-400">
+                      {fmtCBM(totalCBM)} m³
+                    </span>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
 

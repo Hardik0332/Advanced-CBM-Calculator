@@ -141,8 +141,13 @@ const ProductDirectory = ({
                       <div
                         key={product.id}
                         id={`product-${product.id}`}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('application/json', JSON.stringify(product));
+                          e.dataTransfer.effectAllowed = 'copy';
+                        }}
                         onClick={() => handleProductClick(product)}
-                        className={`w-full max-w-full text-left rounded-xl p-3.5 group/card cursor-pointer
+                        className={`w-full max-w-full text-left rounded-xl p-3.5 group/card cursor-grab active:cursor-grabbing select-none
                           ${
                             isActive
                               ? `bg-gradient-to-r ${product.color} dark:from-indigo-950/60 dark:to-violet-950/40 border ${product.border} dark:border-indigo-700/60 shadow-glow`

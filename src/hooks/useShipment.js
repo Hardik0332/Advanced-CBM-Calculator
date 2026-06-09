@@ -20,6 +20,7 @@ const EMPTY_FORM = {
   name: '',
   totalPcs: '',
   presetCBM: '',  // for products with pre-calculated CBM (no L/W/H dims)
+  packingString: '',
 };
 
 export function useShipment() {
@@ -35,8 +36,11 @@ export function useShipment() {
 
   useEffect(() => {
     try {
-      // Keep rawData to ensure it is not lost on page reload.
-      localStorage.setItem('cbm-products', JSON.stringify(products));
+      // Strip rawData before persisting — it holds all original CSV/Excel columns and
+      // can be hundreds of KB for large catalogs, exhausting the 5 MB localStorage quota.
+      // rawData remains in memory for the current session (ProductSummaryModal uses it).
+      const lean = products.map(({ rawData, ...p }) => p);
+      localStorage.setItem('cbm-products', JSON.stringify(lean));
     } catch {
       /* storage full */
     }
@@ -47,6 +51,7 @@ export function useShipment() {
   const [manualAddOpen, setManualAddOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [importResult, setImportResult] = useState(null);
+  const [confirmConfig, setConfirmConfig] = useState(null);
 
   /* ── Product directory search ── */
   const [productSearch, setProductSearch] = useState('');
@@ -131,6 +136,7 @@ export function useShipment() {
             !savedProduct.length && !savedProduct.width && !savedProduct.height
               ? savedProduct.cbmPerShipper || 0
               : 0,
+          packingString: savedProduct.packingString || '',
         }));
       }
       setEditingProduct(null);
@@ -156,13 +162,16 @@ export function useShipment() {
   }, []);
 
   const handleDeleteProduct = useCallback((id) => {
-    if (window.confirm('Delete this product from directory?')) {
-      setProducts((prev) => prev.filter((p) => p.id !== id));
-      if (activeProductId === id) {
-        setActiveProductId(null);
-        setForm({ ...EMPTY_FORM });
+    setConfirmConfig({
+      message: 'Delete this product from directory?',
+      onConfirm: () => {
+        setProducts((prev) => prev.filter((p) => p.id !== id));
+        if (activeProductId === id) {
+          setActiveProductId(null);
+          setForm({ ...EMPTY_FORM });
+        }
       }
-    }
+    });
   }, [activeProductId]);
 
   /* ── Product click → populate form ── */
@@ -186,6 +195,7 @@ export function useShipment() {
           !product.length && !product.width && !product.height
             ? product.cbmPerShipper || 0
             : 0,
+        packingString: product.packingString || '',
       }));
     }
   }, [activeProductId]);
@@ -208,7 +218,7 @@ export function useShipment() {
         ? Math.ceil(finalForm.totalPcs / finalForm.packSize)
         : 1;
     const newItem = {
-      id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       name: finalForm.name || 'Custom Item',
       unit: finalForm.unit,
       length: Number(finalForm.length) || 0,
@@ -219,6 +229,7 @@ export function useShipment() {
       grossWeightPerShipper: Number(finalForm.grossWeight) || 0,
       cbmPerShipper,
       quantity: derivedShippers,
+      packingString: finalForm.packingString || '',
     };
     setShipment((p) => [...p, newItem]);
     setFlashId(newItem.id);
@@ -227,6 +238,38 @@ export function useShipment() {
     setActiveProductId(null);
     setUnitSwitchWarning(false);
   }, [form]);
+
+  /* ── Drag & Drop directly to shipment ── */
+  const handleAddProductToShipment = useCallback((product) => {
+    const hasDims =
+      Number(product.length) > 0 &&
+      Number(product.width) > 0 &&
+      Number(product.height) > 0;
+    const cbmPerShipper = product.cbmPerShipper
+      ? product.cbmPerShipper
+      : hasDims
+        ? calcCBM(product.length, product.width, product.height, product.unit || 'cm')
+        : 0;
+
+    const newItem = {
+      id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      name: product.name || 'Imported Item',
+      unit: product.unit || 'cm',
+      length: Number(product.length) || 0,
+      width: Number(product.width) || 0,
+      height: Number(product.height) || 0,
+      packSize: Number(product.packSize) || 1,
+      netWeightPerUnit: Number(product.netWeightPerUnit) || 0,
+      grossWeightPerShipper: Number(product.grossWeightPerShipper) || 0,
+      cbmPerShipper,
+      quantity: 1, // Default to 1 shipper when dragging/dropping directly
+      packingString: product.packingString || '',
+    };
+
+    setShipment((p) => [...p, newItem]);
+    setFlashId(newItem.id);
+    setTimeout(() => setFlashId(null), 800);
+  }, []);
 
   /* ── Add item to product directory ── */
   const handleAddToDirectory = useCallback((overrides = {}) => {
@@ -245,7 +288,7 @@ export function useShipment() {
     const icon = IMPORT_ICONS[Math.floor(Math.random() * IMPORT_ICONS.length)];
 
     const newProduct = {
-      id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      id: `manual-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       name: finalForm.name || 'Custom Item',
       description: 'Manually added',
       icon,
@@ -259,11 +302,9 @@ export function useShipment() {
       netWeightPerUnit: (Number(finalForm.netWeight) || 0) / (Number(finalForm.packSize) || 1),
       grossWeightPerShipper: Number(finalForm.grossWeight) || 0,
       cbmPerShipper,
+      packingString: finalForm.packingString || '',
     };
 
-    // Check if we are currently editing a product, we should save it as a NEW product if user clicked "Add to Directory"
-    // Wait, handleSaveProduct will overwrite editingProduct if it's set. 
-    // We should bypass editing mode to ensure it creates a new entry if that's the intent, or just call mergeProducts directly.
     setProducts((prev) => {
       const { nextProducts } = mergeProducts(prev, [newProduct]);
       return nextProducts;
@@ -308,6 +349,7 @@ export function useShipment() {
         !item.length && !item.width && !item.height
           ? item.cbmPerShipper || 0
           : 0,
+      packingString: item.packingString || '',
     });
     setShipment((p) => p.filter((i) => i.id !== item.id));
     setActiveProductId(null);
@@ -317,7 +359,7 @@ export function useShipment() {
   const handleDuplicateItem = useCallback((item) => {
     const dup = {
       ...item,
-      id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     };
     setShipment((p) => [...p, dup]);
     setFlashId(dup.id);
@@ -326,7 +368,10 @@ export function useShipment() {
 
   /* ── Clear shipment ── */
   const clearShipment = useCallback(() => {
-    if (window.confirm('Clear all shipment items?')) setShipment([]);
+    setConfirmConfig({
+      message: 'Clear all shipment items?',
+      onConfirm: () => setShipment([]),
+    });
   }, []);
 
   /* ══════════════ Computed values ══════════════ */
@@ -396,6 +441,8 @@ export function useShipment() {
     setManualAddOpen,
     editingProduct,
     importResult,
+    confirmConfig,
+    setConfirmConfig,
 
     // Form
     form,
@@ -421,6 +468,7 @@ export function useShipment() {
     containerPct,
 
     // Handlers
+    handleAddProductToShipment,
     handleImportComplete,
     handleSaveProduct,
     handleEditProduct,

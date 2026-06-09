@@ -17,6 +17,15 @@ import { parseFile, parseDimensionString, autoMapHeaders, applyMapping } from '.
 import { calcCBM } from '../../utils/calculations';
 import { compositeKey } from '../../utils/deduplication';
 
+// Adaptive CBM formatter — prevents 0.00 for small pharmaceutical/medical items.
+// Uses more decimal places only when the value is too small for 2dp to be meaningful.
+const fmtCBM = (v) => {
+  if (!v || v === 0) return '0.0000';
+  if (v < 0.0001) return v.toFixed(6);
+  if (v < 0.01) return v.toFixed(4);
+  return v.toFixed(2);
+};
+
 /* ═══════════════════════════════════════════════════════
    STEP INDICATOR
    ═══════════════════════════════════════════════════════ */
@@ -33,22 +42,20 @@ const StepIndicator = ({ currentStep }) => {
           <div className="flex items-center gap-2">
             <div
               className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold no-theme-transition
-                ${
-                  currentStep > s.num
-                    ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 border-2 border-emerald-300 dark:border-emerald-700'
-                    : currentStep === s.num
-                      ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 border-2 border-indigo-400 shadow-glow'
-                      : 'bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-500 border-2 border-slate-200 dark:border-slate-600'
+                ${currentStep > s.num
+                  ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 border-2 border-emerald-300 dark:border-emerald-700'
+                  : currentStep === s.num
+                    ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 border-2 border-indigo-400 shadow-glow'
+                    : 'bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-500 border-2 border-slate-200 dark:border-slate-600'
                 }`}
             >
               {currentStep > s.num ? <CheckCircleIcon /> : s.num}
             </div>
             <span
               className={`text-xs font-medium hidden sm:block
-                ${
-                  currentStep >= s.num
-                    ? 'text-slate-700 dark:text-slate-200'
-                    : 'text-slate-400 dark:text-slate-600'
+                ${currentStep >= s.num
+                  ? 'text-slate-700 dark:text-slate-200'
+                  : 'text-slate-400 dark:text-slate-600'
                 }`}
             >
               {s.label}
@@ -57,10 +64,9 @@ const StepIndicator = ({ currentStep }) => {
           {idx < steps.length - 1 && (
             <div
               className={`w-8 h-0.5 mx-1 rounded
-                ${
-                  currentStep > s.num
-                    ? 'bg-emerald-300 dark:bg-emerald-700'
-                    : 'bg-slate-200 dark:bg-slate-700'
+                ${currentStep > s.num
+                  ? 'bg-emerald-300 dark:bg-emerald-700'
+                  : 'bg-slate-200 dark:bg-slate-700'
                 }`}
             />
           )}
@@ -139,10 +145,9 @@ const FileUploadStep = ({ onFileParsed }) => {
                 type="button"
                 onClick={() => setSelectedSheet(name)}
                 className={`w-full text-left px-4 py-3 rounded-xl border text-sm font-semibold flex items-center justify-between gap-2
-                  ${
-                    selectedSheet === name
-                      ? 'bg-indigo-100 dark:bg-indigo-900/60 border-indigo-400 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300'
-                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:border-indigo-300'
+                  ${selectedSheet === name
+                    ? 'bg-indigo-100 dark:bg-indigo-900/60 border-indigo-400 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300'
+                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:border-indigo-300'
                   }`}
               >
                 <span>📄 {name}</span>
@@ -180,10 +185,9 @@ const FileUploadStep = ({ onFileParsed }) => {
         onDragLeave={() => setDragOver(false)}
         onClick={() => fileInputRef.current?.click()}
         className={`relative border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer
-          ${
-            dragOver
-              ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 scale-[1.01] drag-pulse'
-              : 'border-slate-300 dark:border-slate-600 bg-slate-50/80 dark:bg-slate-800/50 hover:border-indigo-300 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30'
+          ${dragOver
+            ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 scale-[1.01] drag-pulse'
+            : 'border-slate-300 dark:border-slate-600 bg-slate-50/80 dark:bg-slate-800/50 hover:border-indigo-300 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30'
           }`}
       >
         <input
@@ -206,11 +210,10 @@ const FileUploadStep = ({ onFileParsed }) => {
         ) : (
           <>
             <div
-              className={`flex justify-center mb-4 ${
-                dragOver
-                  ? 'text-indigo-500'
-                  : 'text-slate-400 dark:text-slate-500'
-              }`}
+              className={`flex justify-center mb-4 ${dragOver
+                ? 'text-indigo-500'
+                : 'text-slate-400 dark:text-slate-500'
+                }`}
             >
               <UploadIcon />
             </div>
@@ -265,6 +268,7 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
     width: autoMap.mapping.width || '',
     height: autoMap.mapping.height || '',
     cbm: autoMap.mapping.cbm || '',
+    packingString: autoMap.mapping.packingString || '',
     packSize: autoMap.mapping.packSize || '',
     netWeight: autoMap.mapping.netWeight || '',
     grossWeight: autoMap.mapping.grossWeight || '',
@@ -306,23 +310,23 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
     `w-full max-w-full bg-white/80 dark:bg-slate-800/80 border rounded-xl px-3 py-2.5 text-sm font-medium
      text-slate-800 dark:text-slate-100
      focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400/70
-     ${
-       hasValue
-         ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/30 dark:bg-emerald-950/20'
-         : 'border-slate-200 dark:border-slate-600/70'
-     }`;
+     ${hasValue
+      ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/30 dark:bg-emerald-950/20'
+      : 'border-slate-200 dark:border-slate-600/70'
+    }`;
 
   const dimsMapped = !!mapping.length && !!mapping.width && !!mapping.height;
   const fields = [
     { key: 'name', label: 'Product Name', required: true, icon: '🏷️' },
     ...(!combinedDim
       ? [
-          { key: 'length', label: 'Length', required: !mapping.cbm, icon: '📏' },
-          { key: 'width', label: 'Width', required: !mapping.cbm, icon: '📐' },
-          { key: 'height', label: 'Height', required: !mapping.cbm, icon: '📦' },
-          { key: 'cbm', label: 'CBM (pre-calc)', required: !dimsMapped, icon: '🔷' },
-        ]
+        { key: 'length', label: 'Length', required: !mapping.cbm, icon: '📏' },
+        { key: 'width', label: 'Width', required: !mapping.cbm, icon: '📐' },
+        { key: 'height', label: 'Height', required: !mapping.cbm, icon: '📦' },
+        { key: 'cbm', label: 'CBM (pre-calc)', required: !dimsMapped, icon: '🔷' },
+      ]
       : []),
+    { key: 'packingString', label: 'Packing Description', required: false, icon: '📝' },
     { key: 'packSize', label: 'Pack Size', required: false, icon: '📋' },
     { key: 'netWeight', label: 'Net Weight', required: false, icon: '⚖️' },
     { key: 'grossWeight', label: 'Gross Weight', required: false, icon: '🏋️' },
@@ -357,16 +361,14 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
             }}
           >
             <div
-              className={`w-11 h-6 rounded-full relative ${
-                combinedDim
-                  ? 'bg-indigo-500'
-                  : 'bg-slate-300 dark:bg-slate-600'
-              }`}
+              className={`w-11 h-6 rounded-full relative ${combinedDim
+                ? 'bg-indigo-500'
+                : 'bg-slate-300 dark:bg-slate-600'
+                }`}
             >
               <div
-                className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow theme-pill ${
-                  combinedDim ? 'left-[22px]' : 'left-0.5'
-                }`}
+                className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow theme-pill ${combinedDim ? 'left-[22px]' : 'left-0.5'
+                  }`}
               />
             </div>
           </div>
@@ -460,10 +462,9 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
               type="button"
               onClick={() => setImportUnit(u)}
               className={`py-2 px-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide truncate
-                ${
-                  importUnit === u
-                    ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-600'
-                    : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600 hover:border-slate-300'
+                ${importUnit === u
+                  ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-600'
+                  : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600 hover:border-slate-300'
                 }`}
             >
               {u}
@@ -522,10 +523,9 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
           onClick={handleNext}
           disabled={!canProceed}
           className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold
-            ${
-              canProceed
-                ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white hover:from-indigo-500 hover:to-violet-500 hover:shadow-glow'
-                : 'bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-600'
+            ${canProceed
+              ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white hover:from-indigo-500 hover:to-violet-500 hover:shadow-glow'
+              : 'bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-600'
             }`}
         >
           Preview Data <ArrowRightIcon />
@@ -685,7 +685,7 @@ const DataPreviewStep = ({
           <table className="w-full text-sm min-w-[520px]">
             <thead className="sticky top-0 z-10">
               <tr className="bg-slate-50/90 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 backdrop-blur-sm">
-                {['Name', 'L', 'W', 'H', 'Pack', 'Net Wt', 'Gross Wt', 'CBM'].map(
+                {['Name', 'L', 'W', 'H', 'Pack', 'Net Wt/Ship', 'Gross Wt/Ship', 'CBM'].map(
                   (h, i) => (
                     <th
                       key={h}
@@ -721,18 +721,17 @@ const DataPreviewStep = ({
                       const cbm = isSkipped
                         ? 'N/A'
                         : p.length > 0 && p.width > 0 && p.height > 0
-                          ? calcCBM(p.length, p.width, p.height, p.unit || 'cm').toFixed(2)
+                          ? fmtCBM(calcCBM(p.length, p.width, p.height, p.unit || 'cm'))
                           : (p.cbmPerShipper || 0) > 0
-                            ? p.cbmPerShipper.toFixed(2)
+                            ? fmtCBM(p.cbmPerShipper)
                             : 'N/A';
                       return (
                         <tr
                           key={i}
                           className={`border-t border-slate-100 dark:border-slate-700/60
-                            ${
-                              isSkipped
-                                ? 'bg-amber-50/40 dark:bg-amber-950/10 opacity-70'
-                                : 'hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20'
+                            ${isSkipped
+                              ? 'bg-amber-50/40 dark:bg-amber-950/10 opacity-70'
+                              : 'hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20'
                             }`}
                         >
                           <td className="px-4 py-2.5 font-semibold text-slate-800 dark:text-slate-200 max-w-[180px]">
@@ -747,27 +746,27 @@ const DataPreviewStep = ({
                             p.length || 'N/A',
                             p.width || 'N/A',
                             p.height || 'N/A',
-                            p.packSize,
-                            p.netWeightPerUnit,
+                            p.packingString || p.packSize,
+                            // Show per-shipper net weight (= what was in the original CSV column)
+                            // netWeightPerUnit was divided by packSize on import; multiply back for display
+                            +((p.netWeightPerUnit || 0) * (p.packSize || 1)).toFixed(3),
                             p.grossWeightPerShipper,
                           ].map((v, j) => (
                             <td
                               key={j}
-                              className={`px-3 py-2.5 text-right font-mono text-xs ${
-                                isSkipped
-                                  ? 'text-slate-400 dark:text-slate-600'
-                                  : 'text-slate-600 dark:text-slate-400'
-                              }`}
+                              className={`px-3 py-2.5 text-right font-mono text-xs ${isSkipped
+                                ? 'text-slate-400 dark:text-slate-600'
+                                : 'text-slate-600 dark:text-slate-400'
+                                }`}
                             >
                               {v}
                             </td>
                           ))}
                           <td
-                            className={`px-4 py-2.5 text-right font-mono font-bold text-xs ${
-                              isSkipped
-                                ? 'text-slate-400 dark:text-slate-600'
-                                : 'text-indigo-600 dark:text-indigo-400'
-                            }`}
+                            className={`px-4 py-2.5 text-right font-mono font-bold text-xs ${isSkipped
+                              ? 'text-slate-400 dark:text-slate-600'
+                              : 'text-indigo-600 dark:text-indigo-400'
+                              }`}
                           >
                             {cbm}
                           </td>
@@ -808,10 +807,9 @@ const DataPreviewStep = ({
           onClick={handleImport}
           disabled={importableProducts.length === 0 || importing}
           className={`flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold
-            ${
-              importableProducts.length > 0 && !importing
-                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 hover:shadow-glow'
-                : 'bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-600'
+            ${importableProducts.length > 0 && !importing
+              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 hover:shadow-glow'
+              : 'bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-600'
             }`}
         >
           {importing ? (

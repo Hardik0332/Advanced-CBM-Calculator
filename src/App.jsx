@@ -14,6 +14,7 @@ import ProductDirectory from './components/directory/ProductDirectory';
 import ManualAddModal from './components/modals/ManualAddModal';
 import ImportWizardModal from './components/modals/ImportWizardModal';
 import ProductSummaryModal from './components/modals/ProductSummaryModal';
+import ConfirmModal from './components/modals/ConfirmModal';
 import { CheckCircleIcon } from './components/icons/Icons';
 
 function App() {
@@ -34,6 +35,8 @@ function App() {
     setManualAddOpen,
     editingProduct,
     importResult,
+    confirmConfig,
+    setConfirmConfig,
 
     // Form
     form,
@@ -59,6 +62,7 @@ function App() {
     containerPct,
 
     // Handlers
+    handleAddProductToShipment,
     handleImportComplete,
     handleSaveProduct,
     handleEditProduct,
@@ -143,6 +147,7 @@ function App() {
             handleEditItem={handleEditItem}
             handleDuplicateItem={handleDuplicateItem}
             clearShipment={clearShipment}
+            handleAddProductToShipment={handleAddProductToShipment}
           />
 
           {/* Right: Product Directory */}
@@ -184,6 +189,12 @@ function App() {
         isOpen={!!summaryData}
         onClose={() => setSummaryData(null)}
         data={summaryData}
+      />
+      <ConfirmModal
+        isOpen={!!confirmConfig}
+        message={confirmConfig?.message}
+        onConfirm={confirmConfig?.onConfirm}
+        onClose={() => setConfirmConfig(null)}
       />
     </div>
   );

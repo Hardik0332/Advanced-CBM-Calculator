@@ -69,7 +69,7 @@ const ManualAddModal = ({ isOpen, onClose, onSave, editingProduct }) => {
       const icon =
         IMPORT_ICONS[Math.floor(Math.random() * IMPORT_ICONS.length)];
       onSave({
-        id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        id: `manual-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         name: f.name.trim(),
         description: 'Manually added',
         icon,

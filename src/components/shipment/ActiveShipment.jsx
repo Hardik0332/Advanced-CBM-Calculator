@@ -1,6 +1,7 @@
 /**
  * ActiveShipment — Middle panel with shipment items, totals, container fill, and freight mode.
  */
+import { useState } from 'react';
 import {
   TruckIcon,
   BoxIcon,
@@ -13,6 +14,15 @@ import {
 } from '../icons/Icons';
 import { CONTAINERS } from '../../utils/calculations';
 import { exportExcel, exportPDF } from '../../utils/exporting';
+
+// Adaptive CBM formatter — prevents 0.00 for small pharmaceutical/medical items.
+// Uses more decimal places only when the value is too small for 2dp to be meaningful.
+const fmtCBM = (v) => {
+  if (!v || v === 0) return '0.0000';
+  if (v < 0.0001) return v.toFixed(6);
+  if (v < 0.01) return v.toFixed(4);
+  return v.toFixed(2);
+};
 
 const colorStyles = {
   indigo: {
@@ -59,12 +69,63 @@ const ActiveShipment = ({
   handleEditItem,
   handleDuplicateItem,
   clearShipment,
+  handleAddProductToShipment,
 }) => {
+  const [isDragOver, setIsDragOver] = useState(false);
   const panelCls = 'glass rounded-2xl shadow-card dark:shadow-card-dark';
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDropLocal = (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    try {
+      const dataStr = e.dataTransfer.getData('application/json');
+      if (dataStr) {
+        const product = JSON.parse(dataStr);
+        if (product && typeof handleAddProductToShipment === 'function') {
+          handleAddProductToShipment(product);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse dropped product', err);
+    }
+  };
 
   return (
     <section className="lg:col-span-6 fade-in" style={{ animationDelay: '0.12s' }}>
-      <div className={`${panelCls} p-4 sm:p-5 flex flex-col`}>
+      <div
+        className={`${panelCls} p-4 sm:p-5 flex flex-col transition-all duration-300 relative min-h-[400px]
+          ${isDragOver
+            ? 'ring-2 ring-indigo-500/80 bg-indigo-50/5 dark:bg-indigo-950/10 scale-[1.01] shadow-lg'
+            : ''
+          }`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDropLocal}
+      >
+        {isDragOver && (
+          <div className="absolute inset-0 bg-indigo-600/10 dark:bg-indigo-500/10 backdrop-blur-[2px] rounded-2xl flex flex-col items-center justify-center pointer-events-none border-2 border-dashed border-indigo-500/70 z-50 animate-pulse">
+            <div className="w-16 h-16 rounded-2xl bg-indigo-600 text-white flex items-center justify-center mb-3 shadow-lg scale-110 transition-transform duration-200">
+              <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+            </div>
+            <p className="text-sm font-bold text-indigo-700 dark:text-indigo-300">
+              Drop here to add to shipment
+            </p>
+            <p className="text-[11px] text-indigo-500 dark:text-indigo-400 mt-1">
+              Will use default product dimensions & pack size
+            </p>
+          </div>
+        )}
         {/* Header row with PO input + export buttons */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-2 mb-4 flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0">
@@ -162,7 +223,14 @@ const ActiveShipment = ({
                             : `pre-calc ${item.cbmPerShipper < 0.001
                               ? item.cbmPerShipper.toFixed(5)
                               : item.cbmPerShipper.toFixed(3)} m³`
-                          }{' '}· {item.packSize} pcs/shipper
+                          }{' '}· {item.packSize} pcs/shipper{(() => {
+                            const cleanPacking = item.packingString
+                              ? item.packingString.toLowerCase().replace(/\s*pcs\s*/g, '').trim()
+                              : '';
+                            return item.packingString && cleanPacking !== String(item.packSize)
+                              ? ` (${item.packingString})`
+                              : '';
+                          })()}
                         </p>
                       </div>
                       {/* Action icons: Edit, Copy, Delete */}
@@ -198,34 +266,34 @@ const ActiveShipment = ({
                     <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
                       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 sm:gap-4">
 
-                        {/* Stats Grid - Locks to 4 columns on mobile so text doesn't squish */}
-                        <div className="grid grid-cols-4 gap-4 sm:gap-x-8 sm:gap-y-2 w-full sm:w-auto">
-                          <div className="text-center sm:text-left">
-                            <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">CBM/ship</p>
+                        {/* Stats flex container - Allows items to layout cleanly based on content sizes */}
+                        <div className="flex flex-row justify-between sm:justify-start gap-x-4 sm:gap-x-8 sm:gap-y-2 w-full sm:w-auto">
+                          <div className="text-center sm:text-left flex-shrink-0">
+                            <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">CBM/ship</p>
                             <p className="text-[11px] sm:text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 truncate">
                               {item.cbmPerShipper < 0.001
                                 ? item.cbmPerShipper.toFixed(5)
                                 : item.cbmPerShipper.toFixed(3)}
                             </p>
                           </div>
-                          <div className="text-center sm:text-left">
-                            <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">Total CBM</p>
+                          <div className="text-center sm:text-left flex-shrink-0">
+                            <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">Total CBM</p>
                             <p className="text-[11px] sm:text-sm font-mono font-bold text-indigo-600 dark:text-indigo-400 truncate">
                               {totalCBM < 0.001
                                 ? totalCBM.toFixed(5)
                                 : totalCBM.toFixed(3)}
                             </p>
                           </div>
-                          <div className="text-center sm:text-left">
-                            <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">Wt (kg)</p>
+                          <div className="text-center sm:text-left flex-shrink-0">
+                            <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">Total Gross Wt (kg)</p>
                             <p className="text-[11px] sm:text-sm font-mono font-bold text-amber-600 dark:text-amber-400 truncate">{totalWeight.toFixed(2)}</p>
                           </div>
                           {item.packSize > 1 ? (
-                            <div className="text-center sm:text-left">
-                              <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">Pcs</p>
+                            <div className="text-center sm:text-left flex-shrink-0">
+                              <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">Pcs</p>
                               <p className="text-[11px] sm:text-sm font-mono font-bold text-violet-600 dark:text-violet-400 truncate">{totalPcs.toLocaleString()}</p>
                             </div>
-                          ) : <div />}
+                          ) : <div className="w-0 sm:w-auto flex-shrink-0" />}
                         </div>
 
                         {/* Qty Controls - Drops below stats on mobile, aligns right */}
@@ -257,9 +325,9 @@ const ActiveShipment = ({
             {/* 4 totals row */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
-                { label: 'Total CBM', value: totals.cbm.toFixed(2), color: 'indigo', icon: <BoxIcon /> },
-                { label: 'Gross Wt', value: totals.grossWeight.toFixed(2) + ' kg', color: 'amber', icon: <ScaleIcon /> },
+                { label: 'Total CBM', value: fmtCBM(totals.cbm), color: 'indigo', icon: <BoxIcon /> },
                 { label: 'Net Wt', value: totals.netWeight.toFixed(2) + ' kg', color: 'cyan', icon: <ScaleIcon /> },
+                { label: 'Gross Wt', value: totals.grossWeight.toFixed(2) + ' kg', color: 'amber', icon: <ScaleIcon /> },
                 { label: 'Shippers', value: totals.shippers, color: 'emerald', icon: <TruckIcon /> },
               ].map((t) => (
                 <div
@@ -315,7 +383,7 @@ const ActiveShipment = ({
               </div>
               <div className="flex justify-between mt-1.5">
                 <span className="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400">
-                  {totals.cbm.toFixed(2)} / {CONTAINERS[containerType].cbm} m³
+                  {fmtCBM(totals.cbm)} / {CONTAINERS[containerType].cbm} m³
                 </span>
                 <span
                   className={`text-[11px] font-mono font-bold ${containerPct > 95
