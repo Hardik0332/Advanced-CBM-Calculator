@@ -4,7 +4,7 @@
  * This hook encapsulates: product directory, shipment items, the CBM form,
  * totals computation, freight/container calculations, and all CRUD operations.
  */
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { calcCBM, CONTAINERS } from '../utils/calculations';
 import { mergeProducts } from '../utils/deduplication';
 import { IMPORT_COLORS, IMPORT_ICONS } from '../utils/fileParser';
@@ -34,16 +34,22 @@ export function useShipment() {
     }
   });
 
+  const productsTimerRef = useRef(null);
   useEffect(() => {
-    try {
-      // Strip rawData before persisting — it holds all original CSV/Excel columns and
-      // can be hundreds of KB for large catalogs, exhausting the 5 MB localStorage quota.
-      // rawData remains in memory for the current session (ProductSummaryModal uses it).
-      const lean = products.map(({ rawData, ...p }) => p);
-      localStorage.setItem('cbm-products', JSON.stringify(lean));
-    } catch {
-      /* storage full */
-    }
+    // Debounce: avoid writing on every keystroke — wait 500 ms of no changes
+    clearTimeout(productsTimerRef.current);
+    productsTimerRef.current = setTimeout(() => {
+      try {
+        // Strip rawData before persisting — it holds all original CSV/Excel columns and
+        // can be hundreds of KB for large catalogs, exhausting the 5 MB localStorage quota.
+        // rawData remains in memory for the current session (ProductSummaryModal uses it).
+        const lean = products.map(({ rawData, ...p }) => p);
+        localStorage.setItem('cbm-products', JSON.stringify(lean));
+      } catch {
+        /* storage full */
+      }
+    }, 500);
+    return () => clearTimeout(productsTimerRef.current);
   }, [products]);
 
   /* ── Modal state ── */
@@ -77,12 +83,17 @@ export function useShipment() {
     }
   });
 
+  const shipmentTimerRef = useRef(null);
   useEffect(() => {
-    try {
-      localStorage.setItem('cbm-shipment', JSON.stringify(shipment));
-    } catch {
-      /* storage full */
-    }
+    clearTimeout(shipmentTimerRef.current);
+    shipmentTimerRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem('cbm-shipment', JSON.stringify(shipment));
+      } catch {
+        /* storage full */
+      }
+    }, 500);
+    return () => clearTimeout(shipmentTimerRef.current);
   }, [shipment]);
 
   /* ── Shipment metadata ── */
@@ -374,6 +385,19 @@ export function useShipment() {
     });
   }, []);
 
+  /* ── Clear product directory ── */
+  const clearDirectory = useCallback(() => {
+    setConfirmConfig({
+      message: 'Clear all products from directory?',
+      onConfirm: () => {
+        setProducts([]);
+        setActiveProductId(null);
+        setForm({ ...EMPTY_FORM });
+      },
+    });
+  }, []);
+
+
   /* ══════════════ Computed values ══════════════ */
 
   const totals = useMemo(
@@ -482,5 +506,6 @@ export function useShipment() {
     handleEditItem,
     handleDuplicateItem,
     clearShipment,
+    clearDirectory,
   };
 }

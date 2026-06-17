@@ -1,14 +1,4 @@
-/**
- * CustomCBMForm — Left panel for custom CBM entry.
- *
- * Supports two pack modes:
- *   'single'   — a direct "Units per Shipper" input (original behaviour)
- *   'multiple' — two-tier entry: Units per Inner Carton × Inner Cartons per Master
- *                The effective packSize (innerPackQty × masterPackQty) is written
- *                to the shared form state via flushSync before the hook's
- *                handleAddToShipment runs, so the hook needs zero changes.
- */
-import { useState } from 'react';
+import { useState, useMemo, useCallback, memo } from 'react';
 import { flushSync } from 'react-dom';
 import FormInput from '../ui/FormInput';
 import { PlusIcon, WarningIcon } from '../icons/Icons';
@@ -31,7 +21,7 @@ const PACK_MODES = [
 
 /* Pill-toggle shared style tokens */
 const pillBase =
-  'flex-1 py-2 px-3 text-[11px] font-bold uppercase tracking-wide rounded-full transition-all duration-200 focus:outline-none';
+  'flex-1 py-2 px-3 text-[11px] font-bold uppercase tracking-wide rounded-full focus:outline-none';
 const pillActive =
   'bg-indigo-600 dark:bg-indigo-500 text-white shadow-md';
 const pillInactive =
@@ -39,7 +29,7 @@ const pillInactive =
 
 /* ─── component ─────────────────────────────────────────────────────────────── */
 
-const CustomCBMForm = ({
+const CustomCBMForm = memo(({
   form,
   updateForm,
   unitSwitchWarning,
@@ -65,92 +55,122 @@ const CustomCBMForm = ({
   const multiTotal = innerNum * masterNum;
 
   /* ── Reset multi fields when switching back to single ── */
-  const handlePackModeChange = (mode) => {
+  const handlePackModeChange = useCallback((mode) => {
     setPackMode(mode);
     if (mode === 'single') {
       setInnerPackQty('');
       setMasterPackQty('');
     }
-  };
+  }, []);
 
   /**
    * Local add wrapper.
-   * For 'multiple' mode we must patch `form.packSize` (and optionally
-   * `form.packDetails`) in the hook's state *before* the hook's
-   * handleAddToShipment closure reads it.
-   * flushSync forces the React state flush synchronously so the next
-   * read (inside handleAddToShipment) sees the updated value.
    */
-  const handleAdd = () => {
+  const handleAdd = useCallback(() => {
     if (packMode === 'multiple' && multiTotal > 0) {
-      handleAddToShipment({
-        packSize: multiTotal,
-      });
+      handleAddToShipment({ packSize: multiTotal });
     } else {
       handleAddToShipment();
     }
-
-    /* Reset multi-tier fields after successful add */
     if (packMode === 'multiple') {
       setInnerPackQty('');
       setMasterPackQty('');
     }
-  };
+  }, [packMode, multiTotal, handleAddToShipment]);
 
   /**
    * Local wrapper for adding to the product directory.
    */
-  const handleAddToDir = () => {
+  const handleAddToDir = useCallback(() => {
     if (packMode === 'multiple' && multiTotal > 0) {
-      handleAddToDirectory({
-        packSize: multiTotal,
-      });
+      handleAddToDirectory({ packSize: multiTotal });
     } else {
       handleAddToDirectory();
     }
-
-    /* Reset multi-tier fields after successful add */
     if (packMode === 'multiple') {
       setInnerPackQty('');
       setMasterPackQty('');
     }
-  };
+  }, [packMode, multiTotal, handleAddToDirectory]);
 
-  /* ── Filter products for Item Name search dropdown ── */
+  const handleOpenDropdown = useCallback(() => setIsDropdownOpen(true), []);
+  const handleCloseDropdown = useCallback(() => {
+    setTimeout(() => setIsDropdownOpen(false), 200);
+  }, []);
+  const handleNameChange = useCallback((e) => {
+    updateForm('name', e.target.value);
+    setIsDropdownOpen(true);
+  }, [updateForm]);
+
+  /* ── Memoized: Filter products for Item Name search dropdown ── */
   const query = (form.name || '').trim().toLowerCase();
-  
-  // Group products by case-insensitive name
-  const groupedProducts = query ? products.reduce((acc, p) => {
-    const key = p.name.toLowerCase();
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(p);
-    return acc;
-  }, {}) : {};
 
-  const matchingGroups = query
-    ? Object.values(groupedProducts)
-        .filter((group) => group[0].name.toLowerCase().includes(query))
-        .sort((groupA, groupB) => {
-          const aName = groupA[0].name.toLowerCase();
-          const bName = groupB[0].name.toLowerCase();
+  const matchingGroups = useMemo(() => {
+    if (!query) return [];
+    const grouped = {};
+    for (const p of products) {
+      const key = p.name.toLowerCase();
+      if (key.includes(query)) {
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(p);
+      }
+    }
+    return Object.values(grouped)
+      .sort((groupA, groupB) => {
+        const aName = groupA[0].name.toLowerCase();
+        const bName = groupB[0].name.toLowerCase();
+        const aStarts = aName.startsWith(query);
+        const bStarts = bName.startsWith(query);
+        if (aStarts && !bStarts) return -1;
+        if (!aStarts && bStarts) return 1;
+        const aWord = aName.includes(` ${query}`);
+        const bWord = bName.includes(` ${query}`);
+        if (aWord && !bWord) return -1;
+        if (!aWord && bWord) return 1;
+        return groupA[0].name.localeCompare(groupB[0].name);
+      })
+      .slice(0, 5);
+  }, [query, products]);
 
-          const aStarts = aName.startsWith(query);
-          const bStarts = bName.startsWith(query);
-          if (aStarts && !bStarts) return -1;
-          if (!aStarts && bStarts) return 1;
+  const availableVariants = useMemo(() => {
+    const exactName = (form.name || '').trim().toLowerCase();
+    return exactName ? products.filter((p) => p.name.toLowerCase() === exactName) : [];
+  }, [form.name, products]);
 
-          const aWord = aName.includes(` ${query}`);
-          const bWord = bName.includes(` ${query}`);
-          if (aWord && !bWord) return -1;
-          if (!aWord && bWord) return 1;
+  /* ── Memoized: effective pack size for derived rows ── */
+  const effectivePack = useMemo(
+    () => (packMode === 'multiple' ? multiTotal : Number(form.packSize)),
+    [packMode, multiTotal, form.packSize]
+  );
 
-          return groupA[0].name.localeCompare(groupB[0].name);
-        })
-        .slice(0, 5)
-    : [];
+  const derivedShippers = useMemo(
+    () => (form.totalPcs > 0 && effectivePack > 0
+      ? Math.ceil(Number(form.totalPcs) / effectivePack)
+      : 1),
+    [form.totalPcs, effectivePack]
+  );
 
-  const exactName = (form.name || '').trim().toLowerCase();
-  const availableVariants = exactName ? products.filter((p) => p.name.toLowerCase() === exactName) : [];
+  const weightTotals = useMemo(() => {
+    if (!Number(form.netWeight) && !Number(form.grossWeight)) return null;
+    const packSizeForWeight = effectivePack > 0 ? effectivePack : 1;
+    const netWeightPerUnit = (Number(form.netWeight) || 0) / packSizeForWeight;
+    const totalPcsForWeight = form.totalPcs !== '' ? Number(form.totalPcs) || 0 : packSizeForWeight;
+    const shippers = form.totalPcs > 0 && effectivePack > 0
+      ? Math.ceil(Number(form.totalPcs) / effectivePack)
+      : 1;
+    return {
+      totalNet: (netWeightPerUnit * totalPcsForWeight).toFixed(2),
+      totalGross: ((Number(form.grossWeight) || 0) * shippers).toFixed(2),
+      perPcsNet: effectivePack > 0 ? ((Number(form.netWeight) || 0) / effectivePack) : 0,
+      perPcsGross: effectivePack > 0 ? ((Number(form.grossWeight) || 0) / effectivePack) : 0,
+      hasPerPcs: effectivePack > 0 && ((Number(form.netWeight) > 0) || (Number(form.grossWeight) > 0)),
+    };
+  }, [form.netWeight, form.grossWeight, form.totalPcs, effectivePack]);
+
+  const totalCBM = useMemo(
+    () => previewCBM * derivedShippers,
+    [previewCBM, derivedShippers]
+  );
 
   return (
     <section className="lg:col-span-3 fade-in" style={{ animationDelay: '0.05s' }}>
@@ -188,15 +208,9 @@ const CustomCBMForm = ({
                 id="item-name"
                 type="text"
                 value={form.name}
-                onChange={(e) => {
-                  updateForm('name', e.target.value);
-                  setIsDropdownOpen(true);
-                }}
-                onFocus={() => setIsDropdownOpen(true)}
-                onBlur={() => {
-                  // delay to allow click on dropdown items
-                  setTimeout(() => setIsDropdownOpen(false), 200);
-                }}
+                onChange={handleNameChange}
+                onFocus={handleOpenDropdown}
+                onBlur={handleCloseDropdown}
                 autoComplete="off"
                 className="w-full max-w-full bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-600/70
                            rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-slate-100
@@ -470,20 +484,16 @@ const CustomCBMForm = ({
           />
 
           {/* Shipper count derivation row */}
-          {(() => {
-            const effectivePack =
-              packMode === 'multiple' ? multiTotal : Number(form.packSize);
-            return form.totalPcs > 0 && effectivePack > 0 ? (
-              <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-700 fade-in">
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
-                  {form.totalPcs} ÷ {effectivePack}
-                </span>
-                <span className="text-sm font-bold font-mono text-emerald-600 dark:text-emerald-400">
-                  = {Math.ceil(form.totalPcs / effectivePack)} shippers
-                </span>
-              </div>
-            ) : null;
-          })()}
+          {form.totalPcs > 0 && effectivePack > 0 ? (
+            <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-700">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
+                {form.totalPcs} ÷ {effectivePack}
+              </span>
+              <span className="text-sm font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                = {derivedShippers} shippers
+              </span>
+            </div>
+          ) : null}
         </div>
 
         {/* ── Weights ── */}
@@ -505,76 +515,49 @@ const CustomCBMForm = ({
         </div>
 
         {/* Weight totals summary */}
-        {(Number(form.netWeight) > 0 || Number(form.grossWeight) > 0) && (
+        {weightTotals && (
           <>
-            <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 mb-2 fade-in">
-              {(() => {
-                const effectivePack =
-                  packMode === 'multiple' ? multiTotal : Number(form.packSize);
-                const shippers =
-                  form.totalPcs > 0 && effectivePack > 0
-                    ? Math.ceil(Number(form.totalPcs) / effectivePack)
-                    : 1;
-                const packSizeForWeight = effectivePack > 0 ? effectivePack : 1;
-                const netWeightPerUnit = (Number(form.netWeight) || 0) / packSizeForWeight;
-                const totalPcs =
-                  form.totalPcs !== ''
-                    ? Number(form.totalPcs) || 0
-                    : packSizeForWeight;
-                const totalNetWt = (netWeightPerUnit * totalPcs).toFixed(2);
-                const totalGrossWt = ((Number(form.grossWeight) || 0) * shippers).toFixed(2);
-                return (
-                  <>
-                    <div className="flex flex-col">
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
-                        Total Net Wt
-                      </span>
-                      <span className="text-sm font-bold font-mono text-slate-700 dark:text-slate-300">
-                        {totalNetWt} kg
-                      </span>
-                    </div>
-                    <div className="flex flex-col items-end">
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
-                        Total Gross Wt
-                      </span>
-                      <span className="text-sm font-bold font-mono text-slate-700 dark:text-slate-300">
-                        {totalGrossWt} kg
-                      </span>
-                    </div>
-                  </>
-                );
-              })()}
+            <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 mb-2">
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
+                  Total Net Wt
+                </span>
+                <span className="text-sm font-bold font-mono text-slate-700 dark:text-slate-300">
+                  {weightTotals.totalNet} kg
+                </span>
+              </div>
+              <div className="flex flex-col items-end">
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
+                  Total Gross Wt
+                </span>
+                <span className="text-sm font-bold font-mono text-slate-700 dark:text-slate-300">
+                  {weightTotals.totalGross} kg
+                </span>
+              </div>
             </div>
 
             {/* Per-pcs weight breakdown */}
-            {(() => {
-              const effectivePack =
-                packMode === 'multiple' ? multiTotal : Number(form.packSize);
-              const perPcsNet   = effectivePack > 0 ? (Number(form.netWeight)   || 0) / effectivePack : 0;
-              const perPcsGross = effectivePack > 0 ? (Number(form.grossWeight) || 0) / effectivePack : 0;
-              const hasData = effectivePack > 0 && (perPcsNet > 0 || perPcsGross > 0);
-              return hasData ? (
-                <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 mb-5 fade-in">
-                  <div className="flex flex-col">
-                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold uppercase tracking-wider">
-                      Net Wt / Pcs
-                    </span>
-                    <span className="text-sm font-bold font-mono text-amber-700 dark:text-amber-300">
-                      {perPcsNet.toFixed(2)} kg
-                    </span>
-                  </div>
-                  <div className="w-px h-8 bg-amber-200 dark:bg-amber-700/50" />
-                  <div className="flex flex-col items-end">
-                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold uppercase tracking-wider">
-                      Gross Wt / Pcs
-                    </span>
-                    <span className="text-sm font-bold font-mono text-amber-700 dark:text-amber-300">
-                      {perPcsGross.toFixed(2)} kg
-                    </span>
-                  </div>
+            {weightTotals.hasPerPcs ? (
+              <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 mb-5">
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold uppercase tracking-wider">
+                    Net Wt / Pcs
+                  </span>
+                  <span className="text-sm font-bold font-mono text-amber-700 dark:text-amber-300">
+                    {weightTotals.perPcsNet.toFixed(2)} kg
+                  </span>
                 </div>
-              ) : <div className="mb-5" />;
-            })()}
+                <div className="w-px h-8 bg-amber-200 dark:bg-amber-700/50" />
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold uppercase tracking-wider">
+                    Gross Wt / Pcs
+                  </span>
+                  <span className="text-sm font-bold font-mono text-amber-700 dark:text-amber-300">
+                    {weightTotals.perPcsGross.toFixed(2)} kg
+                  </span>
+                </div>
+              </div>
+            ) : <div className="mb-5" />}
           </>
         )}
 
@@ -599,36 +582,23 @@ const CustomCBMForm = ({
 
         {/* ── CBM breakdown ── */}
         {previewCBM > 0 && (
-          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-800 mb-4 fade-in">
-            {(() => {
-              const effectivePack =
-                packMode === 'multiple' ? multiTotal : Number(form.packSize);
-              const shippers =
-                form.totalPcs > 0 && effectivePack > 0
-                  ? Math.ceil(Number(form.totalPcs) / effectivePack)
-                  : 1;
-              const totalCBM = previewCBM * shippers;
-              return (
-                <>
-                  <div className="flex flex-col">
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
-                      CBM / Shipper
-                    </span>
-                    <span className="text-sm font-bold font-mono text-slate-700 dark:text-slate-300">
-                      {fmtCBM(previewCBM)} m³
-                    </span>
-                  </div>
-                  <div className="flex flex-col items-end">
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
-                      Total CBM
-                    </span>
-                    <span className="text-sm font-bold font-mono text-indigo-600 dark:text-indigo-400">
-                      {fmtCBM(totalCBM)} m³
-                    </span>
-                  </div>
-                </>
-              );
-            })()}
+          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-800 mb-4">
+            <div className="flex flex-col">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
+                CBM / Shipper
+              </span>
+              <span className="text-sm font-bold font-mono text-slate-700 dark:text-slate-300">
+                {fmtCBM(previewCBM)} m³
+              </span>
+            </div>
+            <div className="flex flex-col items-end">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
+                Total CBM
+              </span>
+              <span className="text-sm font-bold font-mono text-indigo-600 dark:text-indigo-400">
+                {fmtCBM(totalCBM)} m³
+              </span>
+            </div>
           </div>
         )}
 
@@ -663,6 +633,8 @@ const CustomCBMForm = ({
       </div>
     </section>
   );
-};
+});
+
+CustomCBMForm.displayName = 'CustomCBMForm';
 
 export default CustomCBMForm;

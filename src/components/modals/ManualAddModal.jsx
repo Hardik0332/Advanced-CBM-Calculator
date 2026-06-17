@@ -1,22 +1,18 @@
 /**
  * ManualAddModal — Modal overlay for manually adding a product to the directory.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo, useCallback } from 'react';
 import FormInput from '../ui/FormInput';
 import { CloseIcon, CheckCircleIcon } from '../icons/Icons';
 import { IMPORT_COLORS, IMPORT_ICONS } from '../../utils/fileParser';
 
-const ManualAddModal = ({ isOpen, onClose, onSave, editingProduct }) => {
-  const [f, setF] = useState({
-    name: '',
-    length: '',
-    width: '',
-    height: '',
-    unit: 'cm',
-    packSize: 1,
-    netWeight: '',
-    grossWeight: '',
-  });
+const EMPTY_FORM = {
+  name: '', length: '', width: '', height: '',
+  unit: 'cm', packSize: 1, netWeight: '', grossWeight: '',
+};
+
+const ManualAddModal = memo(({ isOpen, onClose, onSave, editingProduct }) => {
+  const [f, setF] = useState(EMPTY_FORM);
 
   useEffect(() => {
     if (editingProduct) {
@@ -33,21 +29,13 @@ const ManualAddModal = ({ isOpen, onClose, onSave, editingProduct }) => {
         grossWeight: editingProduct.grossWeightPerShipper || '',
       });
     } else {
-      setF({
-        name: '',
-        length: '',
-        width: '',
-        height: '',
-        unit: 'cm',
-        packSize: 1,
-        netWeight: '',
-        grossWeight: '',
-      });
+      setF(EMPTY_FORM);
     }
   }, [editingProduct, isOpen]);
 
-  const up = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const up = useCallback((k, v) => setF((p) => ({ ...p, [k]: v })), []);
   const canSave = f.name.trim() && f.length > 0 && f.width > 0 && f.height > 0;
+
 
   const handleSave = () => {
     const pSize = Number(f.packSize) || 1;
@@ -206,6 +194,8 @@ const ManualAddModal = ({ isOpen, onClose, onSave, editingProduct }) => {
       </div>
     </div>
   );
-};
+});
+
+ManualAddModal.displayName = 'ManualAddModal';
 
 export default ManualAddModal;

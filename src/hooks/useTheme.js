@@ -38,8 +38,14 @@ export function useTheme() {
   }, [mode, getEffectiveDark]);
 
   const setTheme = useCallback((newMode) => {
+    // Briefly add the transition class so the color change animates smoothly,
+    // then remove it so normal interactions are not slowed down.
+    document.documentElement.classList.add('theme-transition');
     localStorage.setItem(THEME_KEY, newMode);
     setMode(newMode);
+    setTimeout(() => {
+      document.documentElement.classList.remove('theme-transition');
+    }, 400);
   }, []);
 
   return { mode, isDark, setTheme };

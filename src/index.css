@@ -14,10 +14,11 @@
   box-sizing: border-box;
 }
 
-/* ── Global smooth theme transition ── */
-*,
-*::before,
-*::after {
+/* ── Opt-in theme transition — applied to html during theme switch only ── */
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after {
   transition-property: background-color, border-color, color, fill, stroke, box-shadow;
   transition-duration: 180ms;
   transition-timing-function: ease-in-out;
@@ -32,6 +33,7 @@
 .no-theme-transition {
   transition: none !important;
 }
+
 
 body {
   font-family: 'Inter', system-ui, sans-serif;
@@ -91,57 +93,19 @@ body.dark {
 }
 
 /* ── Shimmer header text ── */
-@keyframes shimmer {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
-}
-
 .shimmer-text {
   background: linear-gradient(135deg, #4f46e5, #6366f1, #8b5cf6, #06b6d4, #4f46e5);
   background-size: 400% 400%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: shimmer 8s ease-in-out infinite;
 }
 
-/* ── Fade-in card animation ── */
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
+/* ── Fade-in card animation (Removed) ── */
+.fade-in {}
 
-.fade-in {
-  animation: fadeInUp 0.4s ease-out forwards;
-}
-
-/* ── Pulse glow on totals ── */
-@keyframes pulseGlow {
-  0%,
-  100% {
-    box-shadow: 0 0 6px rgba(99, 102, 241, 0.08);
-  }
-  50% {
-    box-shadow: 0 0 22px rgba(99, 102, 241, 0.28);
-  }
-}
-
-.pulse-glow {
-  animation: pulseGlow 3s ease-in-out infinite;
-}
+/* ── Pulse glow on totals (Removed) ── */
+.pulse-glow {}
 
 /* ── Spinner ── */
 @keyframes spin {
@@ -155,49 +119,12 @@ body.dark {
   transition: none !important;
 }
 
-/* ── Wizard backdrop ── */
-@keyframes wizardFadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
+/* ── Wizard backdrop (Removed) ── */
+.wizard-backdrop {}
+.wizard-panel {}
 
-@keyframes wizardSlideUp {
-  from {
-    opacity: 0;
-    transform: translateY(28px) scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-.wizard-backdrop {
-  animation: wizardFadeIn 0.22s ease-out;
-}
-
-.wizard-panel {
-  animation: wizardSlideUp 0.32s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* ── Drag-over pulse ── */
-@keyframes dragPulse {
-  0%,
-  100% {
-    border-color: rgba(99, 102, 241, 0.45);
-  }
-  50% {
-    border-color: rgba(99, 102, 241, 0.9);
-  }
-}
-
-.drag-pulse {
-  animation: dragPulse 1.1s ease-in-out infinite;
-}
+/* ── Drag-over pulse (Removed) ── */
+.drag-pulse {}
 
 /* ── Hide number input spinners ── */
 input[type='number']::-webkit-inner-spin-button,

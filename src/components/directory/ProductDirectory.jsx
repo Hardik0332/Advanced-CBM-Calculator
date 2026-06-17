@@ -1,10 +1,11 @@
 /**
  * ProductDirectory — Right panel with product list, search, and import/add buttons.
  */
-import { SearchIcon, ChevronIcon, ImportIcon } from '../icons/Icons';
+import { useMemo, memo } from 'react';
+import { SearchIcon, ChevronIcon, ImportIcon, TrashIcon } from '../icons/Icons';
 import { calcCBM } from '../../utils/calculations';
 
-const ProductDirectory = ({
+const ProductDirectory = memo(({
   products,
   filteredProducts,
   productSearch,
@@ -16,8 +17,28 @@ const ProductDirectory = ({
   handleEditProduct,
   handleDeleteProduct,
   setSummaryData,
+  clearDirectory,
 }) => {
   const panelCls = 'glass rounded-2xl shadow-card dark:shadow-card-dark';
+
+  const sortedProducts = useMemo(() => {
+    if (!filteredProducts) return [];
+    const q = productSearch.trim().toLowerCase();
+    return [...filteredProducts].sort((a, b) => {
+      if (!q) return a.name.localeCompare(b.name);
+      const aName = a.name.toLowerCase();
+      const bName = b.name.toLowerCase();
+      const aStarts = aName.startsWith(q);
+      const bStarts = bName.startsWith(q);
+      if (aStarts && !bStarts) return -1;
+      if (!aStarts && bStarts) return 1;
+      const aWord = aName.includes(` ${q}`);
+      const bWord = bName.includes(` ${q}`);
+      if (aWord && !bWord) return -1;
+      if (!aWord && bWord) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [filteredProducts, productSearch]);
 
   return (
     <section className="lg:col-span-3 fade-in" style={{ animationDelay: '0.22s' }}>
@@ -51,6 +72,15 @@ const ProductDirectory = ({
             >
               📋 Summary
             </button>
+            {products.length > 0 && (
+              <button
+                onClick={clearDirectory}
+                title="Clear Directory"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/30 active:scale-[0.96]"
+              >
+                <TrashIcon /> Clear
+              </button>
+            )}
             <button
               id="import-data-btn"
               onClick={() => setImportOpen(true)}
@@ -114,27 +144,7 @@ const ProductDirectory = ({
                   No products matching &quot;{productSearch}&quot;
                 </p>
               ) : (
-                [...filteredProducts]
-                  .sort((a, b) => {
-                    if (!productSearch) return a.name.localeCompare(b.name);
-                    const q = productSearch.toLowerCase().trim();
-                    if (!q) return a.name.localeCompare(b.name);
-                    
-                    const aName = a.name.toLowerCase();
-                    const bName = b.name.toLowerCase();
-                    
-                    const aStarts = aName.startsWith(q);
-                    const bStarts = bName.startsWith(q);
-                    if (aStarts && !bStarts) return -1;
-                    if (!aStarts && bStarts) return 1;
-
-                    const aWord = aName.includes(` ${q}`);
-                    const bWord = bName.includes(` ${q}`);
-                    if (aWord && !bWord) return -1;
-                    if (!aWord && bWord) return 1;
-
-                    return a.name.localeCompare(b.name);
-                  })
+                sortedProducts
                   .map((product) => {
                     const isActive = activeProductId === product.id;
                     return (
@@ -257,6 +267,8 @@ const ProductDirectory = ({
       </div>
     </section>
   );
-};
+});
+
+ProductDirectory.displayName = 'ProductDirectory';
 
 export default ProductDirectory;

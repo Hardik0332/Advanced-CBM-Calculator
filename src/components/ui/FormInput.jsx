@@ -1,8 +1,9 @@
 /**
  * FormInput — Reusable labeled input component.
  */
+import { memo } from 'react';
 
-const FormInput = ({ id, label, value, onChange, type = 'number', step, min, suffix }) => (
+const FormInput = memo(({ id, label, value, onChange, type = 'number', step, min, suffix }) => (
   <div className="space-y-1.5 min-w-0">
     <label
       htmlFor={id}
@@ -31,6 +32,8 @@ const FormInput = ({ id, label, value, onChange, type = 'number', step, min, suf
       )}
     </div>
   </div>
-);
+));
+
+FormInput.displayName = 'FormInput';
 
 export default FormInput;

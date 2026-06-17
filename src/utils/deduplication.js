@@ -16,33 +16,39 @@ export const compositeKey = (p) =>
 
 /**
  * Merge incoming products into existing, skipping exact duplicates.
+ * Uses a Map for O(n) lookups — scales well with large catalogs.
  * @param {Array} existing - Currently stored products.
  * @param {Array} incoming - New products to merge.
  * @returns {{ nextProducts: Array, added: number, updated: number, skipped: number }}
  */
 export const mergeProducts = (existing, incoming) => {
-  // Build a set of composite signatures from what already exists
-  const existingKeys = new Set(existing.map((p) => compositeKey(p)));
-  const next = [...existing];
-  let added = 0,
-    skipped = 0;
-
-  // Also track composite keys we've already added in THIS batch
+  // Build signature map once — O(n) instead of O(n) per incoming product
+  const existingKeys = new Set(existing.map(compositeKey));
   const batchKeys = new Set();
+  const additions = [];
+  let added = 0, skipped = 0;
 
-  incoming.forEach((p) => {
-    if (p.status === 'skipped') return; // never persist invalid rows
+  for (const p of incoming) {
+    if (p.status === 'skipped') continue; // never persist invalid rows
     const sig = compositeKey(p);
     if (existingKeys.has(sig) || batchKeys.has(sig)) {
-      skipped++; // exact duplicate — do nothing
+      skipped++;
     } else {
-      const { status, skipReason, ...clean } = p;
-      next.push(clean);
+      // Avoid spread destructure allocation — just delete the status fields
+      const clean = { ...p };
+      delete clean.status;
+      delete clean.skipReason;
+      additions.push(clean);
       existingKeys.add(sig);
       batchKeys.add(sig);
       added++;
     }
-  });
+  }
 
-  return { nextProducts: next, added, updated: 0, skipped };
+  return {
+    nextProducts: additions.length > 0 ? [...existing, ...additions] : existing,
+    added,
+    updated: 0,
+    skipped,
+  };
 };

@@ -3,7 +3,7 @@
  *
  * Internally contains: StepIndicator, FileUploadStep, ColumnMappingStep, DataPreviewStep.
  */
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, memo, useTransition, useCallback } from 'react';
 import {
   CheckCircleIcon,
   CloseIcon,
@@ -538,7 +538,7 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
 /* ═══════════════════════════════════════════════════════
    STEP 3 — PREVIEW & IMPORT
    ═══════════════════════════════════════════════════════ */
-const DataPreviewStep = ({
+const DataPreviewStep = memo(({
   rows,
   mapping,
   dimConfig,
@@ -584,6 +584,11 @@ const DataPreviewStep = ({
 
   const [activeFilter, setActiveFilter] = useState('all');
   const [importing, setImporting] = useState(false);
+  const [isPending, startTransition] = useTransition();
+
+  const setFilter = useCallback((f) => {
+    startTransition(() => setActiveFilter(f));
+  }, []);
 
   const handleImport = () => {
     setImporting(true);
@@ -653,9 +658,9 @@ const DataPreviewStep = ({
               key={chip.key}
               type="button"
               onClick={() =>
-                setActiveFilter(activeFilter === chip.key ? 'all' : chip.key)
+                setFilter(activeFilter === chip.key ? 'all' : chip.key)
               }
-              className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all duration-150 cursor-pointer
+              className={`px-3 py-1.5 rounded-lg border text-xs font-bold cursor-pointer
                 ${chip.base}
                 ${activeFilter === chip.key ? chip.active : 'opacity-80 hover:opacity-100'}`}
             >
@@ -826,27 +831,51 @@ const DataPreviewStep = ({
       </div>
     </div>
   );
-};
+});
+
+DataPreviewStep.displayName = 'DataPreviewStep';
 
 /* ═══════════════════════════════════════════════════════
    IMPORT WIZARD MODAL (main export)
    ═══════════════════════════════════════════════════════ */
-const ImportWizardModal = ({ isOpen, onClose, onImport, existingProducts }) => {
+const ImportWizardModal = memo(({ isOpen, onClose, onImport, existingProducts }) => {
   const [step, setStep] = useState(1);
   const [fileData, setFileData] = useState(null);
   const [mappingConfig, setMappingConfig] = useState(null);
+  const [isPending, startTransition] = useTransition();
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setStep(1);
     setFileData(null);
     setMappingConfig(null);
     onClose();
-  };
+  }, [onClose]);
 
-  const handleImport = (products) => {
+  const handleImport = useCallback((products) => {
     onImport(products);
     handleClose();
-  };
+  }, [onImport, handleClose]);
+
+  const handleFileParsed = useCallback((d) => {
+    startTransition(() => {
+      setFileData(d);
+      setStep(2);
+    });
+  }, []);
+
+  const handleMappingComplete = useCallback((cfg) => {
+    startTransition(() => {
+      setMappingConfig(cfg);
+      setStep(3);
+    });
+  }, []);
+
+  const handleBackToStep1 = useCallback(() => {
+    setStep(1);
+    setFileData(null);
+  }, []);
+
+  const handleBackToStep2 = useCallback(() => setStep(2), []);
 
   if (!isOpen) return null;
 
@@ -889,27 +918,26 @@ const ImportWizardModal = ({ isOpen, onClose, onImport, existingProducts }) => {
         <div className="px-5 sm:px-6 pt-5 flex-shrink-0">
           <StepIndicator currentStep={step} />
         </div>
+
+        {/* Transition pending indicator */}
+        {isPending && (
+          <div className="px-5 sm:px-6 pb-2 flex-shrink-0">
+            <div className="h-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+              <div className="h-full bg-indigo-500 animate-pulse rounded-full w-3/4" />
+            </div>
+          </div>
+        )}
+
         <div className="px-5 sm:px-6 pb-6 overflow-y-auto flex-1">
           {step === 1 && (
-            <FileUploadStep
-              onFileParsed={(d) => {
-                setFileData(d);
-                setStep(2);
-              }}
-            />
+            <FileUploadStep onFileParsed={handleFileParsed} />
           )}
           {step === 2 && fileData && (
             <ColumnMappingStep
               headers={fileData.headers}
               rows={fileData.rows}
-              onMappingComplete={(cfg) => {
-                setMappingConfig(cfg);
-                setStep(3);
-              }}
-              onBack={() => {
-                setStep(1);
-                setFileData(null);
-              }}
+              onMappingComplete={handleMappingComplete}
+              onBack={handleBackToStep1}
             />
           )}
           {step === 3 && fileData && mappingConfig && (
@@ -919,13 +947,15 @@ const ImportWizardModal = ({ isOpen, onClose, onImport, existingProducts }) => {
               dimConfig={mappingConfig.dimConfig}
               existingProducts={existingProducts}
               onImport={handleImport}
-              onBack={() => setStep(2)}
+              onBack={handleBackToStep2}
             />
           )}
         </div>
       </div>
     </div>
   );
-};
+});
+
+ImportWizardModal.displayName = 'ImportWizardModal';
 
 export default ImportWizardModal;

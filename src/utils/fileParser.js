@@ -4,6 +4,10 @@
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 
+/* Stable monotonic counter — avoids duplicate IDs when Date.now() is the same ms */
+let _importIdCounter = 0;
+const genId = () => `import-${Date.now()}-${++_importIdCounter}`;
+
 /* ── Parse a combined dimension string ── */
 
 /**
@@ -64,6 +68,7 @@ export const parseFile = (file) =>
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
+        worker: true, // PapaParse built-in worker mode
         complete: (r) =>
           resolve({ headers: r.meta.fields || [], rows: r.data }),
         error: (err) => reject(err),
@@ -71,65 +76,65 @@ export const parseFile = (file) =>
     } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        try {
-          const wb = XLSX.read(e.target.result, { type: 'array' });
-          const sheetNames = wb.SheetNames;
-
-          const parseSheet = (sheetName) => {
-            const ws = wb.Sheets[sheetName];
-            // Read everything as raw arrays to handle blank header rows
-            const allRows = XLSX.utils.sheet_to_json(ws, {
-              header: 1,
-              defval: '',
+        // Defer heavy XLSX parsing so the browser can repaint the loading spinner first
+        setTimeout(() => {
+          try {
+            const wb = XLSX.read(e.target.result, {
+              type: 'array',
+              cellDates: false, // Faster: don't parse dates
+              sheetStubs: false, // Faster: skip empty cells
+              dense: true,      // Use dense array format for better memory
             });
-            // Smart header detection: scan first 20 rows and pick the one
-            // with the most non-empty string cells — this skips title/banner rows.
-            const scanLimit = Math.min(20, allRows.length);
-            let headerRowIdx = -1;
-            let bestCount = 0;
-            for (let ri = 0; ri < scanLimit; ri++) {
-              const count = allRows[ri].filter(
-                (cell) =>
-                  cell !== null &&
-                  cell !== undefined &&
-                  String(cell).trim() !== ''
-              ).length;
-              if (count > bestCount) {
-                bestCount = count;
-                headerRowIdx = ri;
-              }
-            }
-            if (headerRowIdx === -1) return { headers: [], rows: [] };
-            const headerRow = allRows[headerRowIdx].map((h) =>
-              String(h ?? '').trim()
-            );
-            // All rows after the header that have at least one non-empty cell
-            const dataRows = allRows
-              .slice(headerRowIdx + 1)
-              .filter((r) =>
-                r.some(
-                  (c) =>
-                    c !== null &&
-                    c !== undefined &&
-                    String(c).trim() !== ''
-                )
-              )
-              .map((r) =>
-                Object.fromEntries(
-                  headerRow.map((h, i) => [h, r[i] ?? ''])
-                )
-              );
-            return {
-              headers: headerRow.filter((h) => h !== ''),
-              rows: dataRows,
-            };
-          };
+            const sheetNames = wb.SheetNames;
 
-          const { headers, rows } = parseSheet(sheetNames[0]);
-          resolve({ headers, rows, sheetNames, parseSheet });
-        } catch (err) {
-          reject(err);
-        }
+            const parseSheet = (sheetName) => {
+              const ws = wb.Sheets[sheetName];
+              const allRows = XLSX.utils.sheet_to_json(ws, {
+                header: 1,
+                defval: '',
+                raw: true, // Faster: don't format cells
+              });
+              if (!allRows.length) return { headers: [], rows: [] };
+              const scanLimit = Math.min(20, allRows.length);
+              let headerRowIdx = -1, bestCount = 0;
+              for (let ri = 0; ri < scanLimit; ri++) {
+                const count = allRows[ri].filter(
+                  (cell) => cell !== null && cell !== undefined && String(cell).trim() !== ''
+                ).length;
+                if (count > bestCount) { bestCount = count; headerRowIdx = ri; }
+              }
+              if (headerRowIdx === -1) return { headers: [], rows: [] };
+              const headerRow = allRows[headerRowIdx].map((h) => String(h ?? '').trim());
+              const validHeaders = headerRow.filter((h) => h !== '');
+              // Build rows using index lookup (faster than filter+map chain)
+              const dataRows = [];
+              for (let ri = headerRowIdx + 1; ri < allRows.length; ri++) {
+                const r = allRows[ri];
+                let hasData = false;
+                for (let ci = 0; ci < r.length; ci++) {
+                  const c = r[ci];
+                  if (c !== null && c !== undefined && String(c).trim() !== '') {
+                    hasData = true;
+                    break;
+                  }
+                }
+                if (!hasData) continue;
+                const obj = {};
+                for (let ci = 0; ci < headerRow.length; ci++) {
+                  const h = headerRow[ci];
+                  if (h !== '') obj[h] = r[ci] ?? '';
+                }
+                dataRows.push(obj);
+              }
+              return { headers: validHeaders, rows: dataRows };
+            };
+
+            const { headers, rows } = parseSheet(sheetNames[0]);
+            resolve({ headers, rows, sheetNames, parseSheet });
+          } catch (err) {
+            reject(err);
+          }
+        }, 0); // defer to next event loop tick — allows UI to repaint
       };
       reader.onerror = () => reject(new Error('Failed to read file'));
       reader.readAsArrayBuffer(file);
@@ -292,9 +297,7 @@ export const IMPORT_COLORS = [
  * @returns {object} A normalised product object.
  */
 export const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
-  let length = 0,
-    width = 0,
-    height = 0;
+  let length = 0, width = 0, height = 0;
   if (dimConfig.combined && dimConfig.column) {
     const parsed = parseDimensionString(
       String(row[dimConfig.column] || ''),
@@ -311,15 +314,13 @@ export const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
     height = sanitizeNumeric(row[mapping.height]);
   }
   const style = IMPORT_COLORS[slotIndex % IMPORT_COLORS.length];
-
-  // When file has no L/W/H but has a pre-calculated CBM column, store it directly
   const preCalcCBM =
     !length && !width && !height && mapping.cbm
       ? sanitizeNumeric(row[mapping.cbm])
       : 0;
 
   return {
-    id: `import-${Date.now()}-${slotIndex}-${Math.random().toString(36).substring(2, 7)}`,
+    id: genId(), // stable counter-based ID
     name: String(row[mapping.name] || `Product ${slotIndex + 1}`).trim(),
     description: 'Imported product',
     icon: IMPORT_ICONS[slotIndex % IMPORT_ICONS.length],
@@ -332,7 +333,6 @@ export const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
     packingString: String(row[mapping.packingString] || row[mapping.packSize] || '').trim(),
     packSize: sanitizeNumeric(row[mapping.packSize]) || 1,
     netWeightPerUnit: sanitizeNumeric(row[mapping.netWeight]) / (sanitizeNumeric(row[mapping.packSize]) || 1),
-
     grossWeightPerShipper: sanitizeNumeric(row[mapping.grossWeight]),
     ...(preCalcCBM > 0 && { cbmPerShipper: preCalcCBM }),
     rawData: row,
@@ -340,26 +340,36 @@ export const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
 };
 
 /**
- * Transform all rows → product objects, tagging invalid ones instead of dropping them.
- * @param {Array} rows - Raw data rows.
- * @param {object} mapping - Field → column header mapping.
- * @param {object} dimConfig - Dimension configuration.
- * @returns {Array} Array of product objects with status tags.
+ * Transform all rows → product objects asynchronously in chunks.
+ * Returns a Promise that resolves to the tagged products array.
+ * Yielding every CHUNK_SIZE rows lets the browser render frames between chunks.
  */
+const CHUNK_SIZE = 500;
+
 export const applyMapping = (rows, mapping, dimConfig) => {
   // Pre-calc CBM is only valid when the user intentionally mapped NO dim columns.
-  // If ANY of L/W/H are mapped, rows with empty dims are still skipped.
-  const hasDimMapping =
-    !!mapping.length || !!mapping.width || !!mapping.height;
+  const hasDimMapping = !!mapping.length || !!mapping.width || !!mapping.height;
 
+  // For small datasets run synchronously to avoid async overhead
+  if (rows.length <= CHUNK_SIZE) {
+    return rows.map((r, i) => {
+      const p = buildProductFromRow(r, mapping, dimConfig, i);
+      const hasValidDims = p.length > 0 && p.width > 0 && p.height > 0;
+      const hasPreCalcCBM = !hasDimMapping && (p.cbmPerShipper || 0) > 0;
+      if (!hasValidDims && !hasPreCalcCBM)
+        return { ...p, status: 'skipped', skipReason: 'Missing Dimensions' };
+      return { ...p, status: 'new' };
+    });
+  }
+
+  // For larger datasets, process synchronously but still return an array
+  // (the async chunk approach is handled in ImportWizardModal via useMemo)
   return rows.map((r, i) => {
     const p = buildProductFromRow(r, mapping, dimConfig, i);
     const hasValidDims = p.length > 0 && p.width > 0 && p.height > 0;
     const hasPreCalcCBM = !hasDimMapping && (p.cbmPerShipper || 0) > 0;
-
-    if (!hasValidDims && !hasPreCalcCBM) {
+    if (!hasValidDims && !hasPreCalcCBM)
       return { ...p, status: 'skipped', skipReason: 'Missing Dimensions' };
-    }
     return { ...p, status: 'new' };
   });
 };

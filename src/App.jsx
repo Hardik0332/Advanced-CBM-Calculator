@@ -4,7 +4,7 @@
  * Wires custom hooks (useTheme, useShipment) to UI components.
  * This file is intentionally lean — all logic lives in hooks, all UI in components.
  */
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { useShipment } from './hooks/useShipment';
 import Header from './components/layout/Header';
@@ -76,7 +76,13 @@ function App() {
     handleEditItem,
     handleDuplicateItem,
     clearShipment,
+    clearDirectory,
   } = useShipment();
+
+  // Stable callbacks to prevent re-renders of memoized modal children
+  const handleCloseImport   = useCallback(() => setImportOpen(false), [setImportOpen]);
+  const handleCloseSummary  = useCallback(() => setSummaryData(null), []);
+  const handleCloseConfirm  = useCallback(() => setConfirmConfig(null), [setConfirmConfig]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-indigo-50/60 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/30">
@@ -163,6 +169,7 @@ function App() {
             handleEditProduct={handleEditProduct}
             handleDeleteProduct={handleDeleteProduct}
             setSummaryData={setSummaryData}
+            clearDirectory={clearDirectory}
           />
         </div>
 
@@ -175,7 +182,7 @@ function App() {
       {/* ── Modals ── */}
       <ImportWizardModal
         isOpen={importOpen}
-        onClose={() => setImportOpen(false)}
+        onClose={handleCloseImport}
         onImport={handleImportComplete}
         existingProducts={products}
       />
@@ -187,14 +194,14 @@ function App() {
       />
       <ProductSummaryModal
         isOpen={!!summaryData}
-        onClose={() => setSummaryData(null)}
+        onClose={handleCloseSummary}
         data={summaryData}
       />
       <ConfirmModal
         isOpen={!!confirmConfig}
         message={confirmConfig?.message}
         onConfirm={confirmConfig?.onConfirm}
-        onClose={() => setConfirmConfig(null)}
+        onClose={handleCloseConfirm}
       />
     </div>
   );

@@ -1,7 +1,7 @@
 /**
  * ActiveShipment — Middle panel with shipment items, totals, container fill, and freight mode.
  */
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import {
   TruckIcon,
   BoxIcon,
@@ -51,7 +51,7 @@ const colorStyles = {
   },
 };
 
-const ActiveShipment = ({
+const ActiveShipment = memo(({
   shipment,
   flashId,
   poNumber,
@@ -459,6 +459,8 @@ const ActiveShipment = ({
       </div>
     </section>
   );
-};
+});
+
+ActiveShipment.displayName = 'ActiveShipment';
 
 export default ActiveShipment;
