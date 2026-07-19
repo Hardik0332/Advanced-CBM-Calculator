@@ -3,7 +3,14 @@
  */
 import { useMemo, memo } from 'react';
 import { SearchIcon, ChevronIcon, ImportIcon, TrashIcon } from '../icons/Icons';
-import { calcCBM } from '../../utils/calculations';
+import { calcCBM, fmtCBM } from '../../utils/calculations';
+
+/** CBM for a product card — dims win; otherwise fall back to pre-calc value. */
+const productCBM = (p) => {
+  if (p.length > 0 && p.width > 0 && p.height > 0)
+    return calcCBM(p.length, p.width, p.height, p.unit);
+  return Number(p.cbmPerShipper) || 0;
+};
 
 const ProductDirectory = memo(({
   products,
@@ -81,6 +88,14 @@ const ProductDirectory = memo(({
                 <TrashIcon /> Clear
               </button>
             )}
+            <button
+              id="manual-add-btn"
+              onClick={() => setManualAddOpen(true)}
+              title="Add product manually"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 active:scale-[0.96]"
+            >
+              ➕ Add
+            </button>
             <button
               id="import-data-btn"
               onClick={() => setImportOpen(true)}
@@ -174,8 +189,9 @@ const ProductDirectory = memo(({
                                 {product.name}
                               </h3>
                               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                                {Number(product.length).toFixed(2)}×{Number(product.width).toFixed(2)}×{Number(product.height).toFixed(2)}{' '}
-                                {product.unit}
+                                {product.length > 0 || product.width > 0 || product.height > 0
+                                  ? `${Number(product.length).toFixed(2)}×${Number(product.width).toFixed(2)}×${Number(product.height).toFixed(2)} ${product.unit}`
+                                  : `pre-calc · ${fmtCBM(productCBM(product))} m³`}
                               </p>
                             </div>
                           </div>
@@ -206,13 +222,7 @@ const ProductDirectory = memo(({
                                   CBM
                                 </span>
                                 <span className="text-indigo-600 dark:text-indigo-400 font-mono font-bold truncate">
-                                  {calcCBM(
-                                    product.length,
-                                    product.width,
-                                    product.height,
-                                    product.unit
-                                  ).toFixed(2)}{' '}
-                                  m³
+                                  {fmtCBM(productCBM(product))} m³
                                 </span>
                               </div>
                             </div>

@@ -22,3 +22,22 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# AI / Agent tool configs (local-only, not for repo)
+.agents/
+.claude/
+.gemini/
+.cursor/
+.aider*
+.continue/
+.copilot/
+
+# Firebase local files
+.firebase/
+.firebaserc
+
+# Generated / scratch files
+graphify-out/
+combined.txt
+*.zip
+walkthrough.md

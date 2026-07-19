@@ -14,17 +14,8 @@ import {
   WarningIcon,
 } from '../icons/Icons';
 import { parseFile, parseDimensionString, autoMapHeaders, applyMapping } from '../../utils/fileParser';
-import { calcCBM } from '../../utils/calculations';
+import { calcCBM, fmtCBM } from '../../utils/calculations';
 import { compositeKey } from '../../utils/deduplication';
-
-// Adaptive CBM formatter — prevents 0.00 for small pharmaceutical/medical items.
-// Uses more decimal places only when the value is too small for 2dp to be meaningful.
-const fmtCBM = (v) => {
-  if (!v || v === 0) return '0.0000';
-  if (v < 0.0001) return v.toFixed(6);
-  if (v < 0.01) return v.toFixed(4);
-  return v.toFixed(2);
-};
 
 /* ═══════════════════════════════════════════════════════
    STEP INDICATOR
@@ -277,6 +268,9 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
   const [dimColumn, setDimColumn] = useState(autoMap.combinedDimColumn || '');
   const [delimiter, setDelimiter] = useState('x');
   const [importUnit, setImportUnit] = useState('cm');
+  // Weight basis: are the weight columns per-shipper (carton) or per-unit (piece)?
+  const [netWeightBasis, setNetWeightBasis] = useState('shipper');
+  const [grossWeightBasis, setGrossWeightBasis] = useState('shipper');
 
   const dimPreview = useMemo(() => {
     if (!combinedDim || !dimColumn || !rows[0]) return null;
@@ -296,6 +290,8 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
       column: combinedDim ? dimColumn : null,
       delimiter: combinedDim ? delimiter : null,
       unit: importUnit,
+      netWeightBasis,
+      grossWeightBasis,
     };
     const finalMapping = { ...mapping };
     if (combinedDim) {
@@ -509,6 +505,69 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
         ))}
       </div>
 
+      {/* Weight basis — only shown when a weight column is mapped */}
+      {(mapping.netWeight || mapping.grossWeight) && (
+        <div className="p-4 rounded-xl bg-violet-50/80 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-800/50 fade-in space-y-3">
+          <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+            ⚖️ What do your weight columns represent?
+          </p>
+          {mapping.netWeight && (
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 truncate">
+                Net Weight (&quot;{mapping.netWeight}&quot;)
+              </span>
+              <div className="flex items-center bg-white dark:bg-slate-800 rounded-lg p-0.5 border border-slate-200 dark:border-slate-600">
+                {[
+                  ['shipper', 'Per Shipper'],
+                  ['unit', 'Per Piece'],
+                ].map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setNetWeightBasis(val)}
+                    className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase ${netWeightBasis === val
+                      ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 shadow-sm'
+                      : 'text-slate-500 dark:text-slate-400'
+                      }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {mapping.grossWeight && (
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 truncate">
+                Gross Weight (&quot;{mapping.grossWeight}&quot;)
+              </span>
+              <div className="flex items-center bg-white dark:bg-slate-800 rounded-lg p-0.5 border border-slate-200 dark:border-slate-600">
+                {[
+                  ['shipper', 'Per Shipper'],
+                  ['unit', 'Per Piece'],
+                ].map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setGrossWeightBasis(val)}
+                    className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase ${grossWeightBasis === val
+                      ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 shadow-sm'
+                      : 'text-slate-500 dark:text-slate-400'
+                      }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            &quot;Per Shipper&quot; = the value is for a whole carton/box. &quot;Per
+            Piece&quot; = the value is for one unit inside the carton.
+          </p>
+        </div>
+      )}
+
       {/* Navigation */}
       <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
         <button
@@ -569,7 +628,12 @@ const DataPreviewStep = memo(({
     () =>
       taggedProducts
         .filter((p) => p.status !== 'skipped')
-        .map(({ status, skipReason, ...p }) => p),
+        .map((p) => {
+          const clean = { ...p };
+          delete clean.status;
+          delete clean.skipReason;
+          return clean;
+        }),
     [taggedProducts]
   );
 
@@ -584,7 +648,7 @@ const DataPreviewStep = memo(({
 
   const [activeFilter, setActiveFilter] = useState('all');
   const [importing, setImporting] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   const setFilter = useCallback((f) => {
     startTransition(() => setActiveFilter(f));
@@ -592,7 +656,8 @@ const DataPreviewStep = memo(({
 
   const handleImport = () => {
     setImporting(true);
-    setTimeout(() => onImport(importableProducts), 500);
+    // Forward the in-file skip count so the result toast is accurate.
+    setTimeout(() => onImport(importableProducts, { skippedInFile: counts.skipped }), 500);
   };
 
   const visibleRows = useMemo(() => {
@@ -851,8 +916,8 @@ const ImportWizardModal = memo(({ isOpen, onClose, onImport, existingProducts })
     onClose();
   }, [onClose]);
 
-  const handleImport = useCallback((products) => {
-    onImport(products);
+  const handleImport = useCallback((products, meta) => {
+    onImport(products, meta);
     handleClose();
   }, [onImport, handleClose]);
 

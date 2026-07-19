@@ -12,17 +12,8 @@ import {
   ExcelIcon,
   PdfIcon,
 } from '../icons/Icons';
-import { CONTAINERS } from '../../utils/calculations';
-import { exportExcel, exportPDF } from '../../utils/exporting';
-
-// Adaptive CBM formatter — prevents 0.00 for small pharmaceutical/medical items.
-// Uses more decimal places only when the value is too small for 2dp to be meaningful.
-const fmtCBM = (v) => {
-  if (!v || v === 0) return '0.0000';
-  if (v < 0.0001) return v.toFixed(6);
-  if (v < 0.01) return v.toFixed(4);
-  return v.toFixed(2);
-};
+import { CONTAINERS, FREIGHT_MODES, fmtCBM } from '../../utils/calculations';
+import { exportExcel, exportCSV, exportPDF } from '../../utils/exporting';
 
 const colorStyles = {
   indigo: {
@@ -49,7 +40,28 @@ const colorStyles = {
     text: 'text-emerald-600 dark:text-emerald-400',
     icon: 'text-emerald-500 dark:text-emerald-400',
   },
+  violet: {
+    bg: 'from-violet-50 to-violet-100/50 dark:from-violet-950/40 dark:to-violet-900/20',
+    border: 'border-violet-200 dark:border-violet-800/50',
+    text: 'text-violet-600 dark:text-violet-400',
+    icon: 'text-violet-500 dark:text-violet-400',
+  },
 };
+
+/** Utilization bar with over-limit handling (bar clamps, label doesn't). */
+const UtilizationBar = ({ pct, danger }) => (
+  <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-4 overflow-hidden">
+    <div
+      className={`bar-fill h-full rounded-full ${danger || pct > 100
+        ? 'bg-gradient-to-r from-rose-500 to-red-500'
+        : pct > 75
+          ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+          : 'bg-gradient-to-r from-indigo-500 to-violet-500'
+        }`}
+      style={{ width: `${Math.min(100, pct)}%` }}
+    />
+  </div>
+);
 
 const ActiveShipment = memo(({
   shipment,
@@ -64,6 +76,8 @@ const ActiveShipment = memo(({
   volumetricWeight,
   chargeableWeight,
   containerPct,
+  payloadPct,
+  containerPlan,
   handleRemove,
   handleQuantityChange,
   handleEditItem,
@@ -98,6 +112,10 @@ const ActiveShipment = memo(({
       console.error('Failed to parse dropped product', err);
     }
   };
+
+  const cont = CONTAINERS[containerType];
+  const overVolume = cont ? totals.cbm - cont.cbm : 0;
+  const overWeight = cont ? totals.grossWeight - cont.maxPayloadKg : 0;
 
   return (
     <section className="lg:col-span-6 fade-in" style={{ animationDelay: '0.12s' }}>
@@ -141,11 +159,19 @@ const ActiveShipment = memo(({
               <>
                 <button
                   id="export-excel-btn"
-                  onClick={() => exportExcel(shipment, totals, poNumber)}
+                  onClick={() => exportExcel(shipment, totals, poNumber, containerType, freightMode)}
                   title="Export Excel"
                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/30"
                 >
                   <ExcelIcon /> Excel
+                </button>
+                <button
+                  id="export-csv-btn"
+                  onClick={() => exportCSV(shipment, totals, poNumber)}
+                  title="Export CSV"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 hover:bg-teal-100 dark:hover:bg-teal-900/30"
+                >
+                  <ExcelIcon /> CSV
                 </button>
                 <button
                   id="export-pdf-btn"
@@ -199,7 +225,10 @@ const ActiveShipment = memo(({
             shipment.map((item, idx) => {
               const totalCBM = item.cbmPerShipper * item.quantity;
               const totalWeight = item.grossWeightPerShipper * item.quantity;
-              const totalPcs = item.packSize * item.quantity;
+              const totalPcs = item.totalPcs || item.packSize * item.quantity;
+              const lastBoxPcs = totalPcs - (item.quantity - 1) * item.packSize;
+              const hasPartialBox =
+                item.packSize > 1 && lastBoxPcs > 0 && lastBoxPcs < item.packSize;
               const isFlashing = flashId === item.id;
 
               return (
@@ -232,13 +261,19 @@ const ActiveShipment = memo(({
                               : '';
                           })()}
                         </p>
+                        {hasPartialBox && (
+                          <p className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 mt-0.5">
+                            ⚠ Last box partial: {lastBoxPcs}/{item.packSize} pcs
+                          </p>
+                        )}
                       </div>
                       {/* Action icons: Edit, Copy, Delete */}
-                      <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100">
+                      <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
                         <button
                           id={`edit-item-${idx}`}
                           onClick={() => handleEditItem(item)}
                           title="Edit"
+                          aria-label={`Edit ${item.name}`}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
                         >
                           <EditIcon />
@@ -247,6 +282,7 @@ const ActiveShipment = memo(({
                           id={`dup-item-${idx}`}
                           onClick={() => handleDuplicateItem(item)}
                           title="Duplicate"
+                          aria-label={`Duplicate ${item.name}`}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-teal-500 hover:bg-teal-50 dark:hover:bg-teal-950/30"
                         >
                           <CopyIcon />
@@ -255,6 +291,7 @@ const ActiveShipment = memo(({
                           id={`remove-item-${idx}`}
                           onClick={() => handleRemove(item.id)}
                           title="Remove"
+                          aria-label={`Remove ${item.name}`}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30"
                         >
                           <TrashIcon />
@@ -262,51 +299,54 @@ const ActiveShipment = memo(({
                       </div>
                     </div>
 
-                    {/* Responsive Mobile Layout for Stats & Controls */}
+                    {/* Responsive Layout for Stats & Controls */}
                     <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
-                      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 sm:gap-4">
+                      <div className="flex flex-wrap items-end justify-between gap-3">
 
-                        {/* Stats flex container - Allows items to layout cleanly based on content sizes */}
-                        <div className="flex flex-row justify-between sm:justify-start gap-x-4 sm:gap-x-8 sm:gap-y-2 w-full sm:w-auto">
-                          <div className="text-center sm:text-left flex-shrink-0">
-                            <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">CBM/ship</p>
-                            <p className="text-[11px] sm:text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 truncate">
+                        {/* Stats — wraps naturally based on actual container width */}
+                        <div className="flex flex-wrap gap-x-5 gap-y-2 min-w-0 flex-1">
+                          <div className="flex-shrink-0">
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">CBM/ship</p>
+                            <p className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
                               {item.cbmPerShipper < 0.001
                                 ? item.cbmPerShipper.toFixed(5)
                                 : item.cbmPerShipper.toFixed(3)}
                             </p>
                           </div>
-                          <div className="text-center sm:text-left flex-shrink-0">
-                            <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">Total CBM</p>
-                            <p className="text-[11px] sm:text-sm font-mono font-bold text-indigo-600 dark:text-indigo-400 truncate">
+                          <div className="flex-shrink-0">
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">Total CBM</p>
+                            <p className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
                               {totalCBM < 0.001
                                 ? totalCBM.toFixed(5)
                                 : totalCBM.toFixed(3)}
                             </p>
                           </div>
-                          <div className="text-center sm:text-left flex-shrink-0">
-                            <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">Total Gross Wt (kg)</p>
-                            <p className="text-[11px] sm:text-sm font-mono font-bold text-amber-600 dark:text-amber-400 truncate">{totalWeight.toFixed(2)}</p>
+                          <div className="flex-shrink-0">
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">Gross Wt (kg)</p>
+                            <p className="text-xs font-mono font-bold text-amber-600 dark:text-amber-400">{totalWeight.toFixed(2)}</p>
                           </div>
-                          {item.packSize > 1 ? (
-                            <div className="text-center sm:text-left flex-shrink-0">
-                              <p className="text-[9px] sm:text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">Pcs</p>
-                              <p className="text-[11px] sm:text-sm font-mono font-bold text-violet-600 dark:text-violet-400 truncate">{totalPcs.toLocaleString()}</p>
+                          {item.packSize > 1 && (
+                            <div className="flex-shrink-0">
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5 whitespace-nowrap">Pcs</p>
+                              <p className="text-xs font-mono font-bold text-violet-600 dark:text-violet-400">{totalPcs.toLocaleString()}</p>
                             </div>
-                          ) : <div className="w-0 sm:w-auto flex-shrink-0" />}
+                          )}
                         </div>
 
-                        {/* Qty Controls - Drops below stats on mobile, aligns right */}
-                        <div className="flex items-center justify-end w-full sm:w-auto mt-1 sm:mt-0">
+                        {/* Qty Controls — always visible, aligns right, shrinks gracefully */}
+                        <div className="flex items-center flex-shrink-0">
                           <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/50 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
                             <button id={`qty-dec-${idx}`} onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
-                              className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600 flex items-center justify-center text-base font-bold">−</button>
+                              aria-label={`Decrease quantity of ${item.name}`}
+                              className="w-7 h-7 rounded-lg bg-white dark:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600 flex items-center justify-center text-sm font-bold">−</button>
                             <input id={`qty-input-${idx}`} type="number" min="1" value={item.quantity}
+                              aria-label={`Quantity of ${item.name} in shippers`}
                               onChange={e => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) handleQuantityChange(item.id, v); }}
                               onBlur={e => { const v = parseInt(e.target.value, 10); if (isNaN(v) || v < 1) handleQuantityChange(item.id, 1); }}
-                              className="w-12 h-8 mx-0.5 text-center bg-transparent border-none text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-0" />
+                              className="w-10 h-7 mx-0.5 text-center bg-transparent border-none text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-0" />
                             <button id={`qty-inc-${idx}`} onClick={() => handleQuantityChange(item.id, item.quantity + 1)}
-                              className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600 flex items-center justify-center text-base font-bold">+</button>
+                              aria-label={`Increase quantity of ${item.name}`}
+                              className="w-7 h-7 rounded-lg bg-white dark:bg-slate-700 shadow-sm border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600 flex items-center justify-center text-sm font-bold">+</button>
                           </div>
                         </div>
 
@@ -322,28 +362,29 @@ const ActiveShipment = memo(({
         {/* Grand totals + Container + Freight */}
         {shipment.length > 0 && (
           <div className="mt-5 pt-5 border-t border-slate-200 dark:border-slate-700 flex-shrink-0 space-y-4">
-            {/* 4 totals row */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {/* 5 totals row */}
+            <div className="grid grid-cols-3 gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))' }}>
               {[
                 { label: 'Total CBM', value: fmtCBM(totals.cbm), color: 'indigo', icon: <BoxIcon /> },
                 { label: 'Net Wt', value: totals.netWeight.toFixed(2) + ' kg', color: 'cyan', icon: <ScaleIcon /> },
                 { label: 'Gross Wt', value: totals.grossWeight.toFixed(2) + ' kg', color: 'amber', icon: <ScaleIcon /> },
                 { label: 'Shippers', value: totals.shippers, color: 'emerald', icon: <TruckIcon /> },
+                { label: 'Total Pcs', value: totals.totalPcs.toLocaleString(), color: 'violet', icon: <BoxIcon /> },
               ].map((t) => (
                 <div
                   key={t.label}
-                  className={`rounded-xl bg-gradient-to-br ${colorStyles[t.color].bg} border ${colorStyles[t.color].border} p-2.5 text-center pulse-glow`}
+                  className={`rounded-xl bg-gradient-to-br ${colorStyles[t.color].bg} border ${colorStyles[t.color].border} p-2 text-center pulse-glow`}
                 >
                   <div
                     className={`flex items-center justify-center gap-1 mb-1 ${colorStyles[t.color].icon}`}
                   >
                     {t.icon}
-                    <p className="text-[8px] uppercase tracking-widest font-bold hidden sm:block">
+                    <p className="text-[7px] uppercase tracking-widest font-bold">
                       {t.label}
                     </p>
                   </div>
                   <p
-                    className={`text-xs sm:text-base font-bold font-mono ${colorStyles[t.color].text} tabular-nums truncate`}
+                    className={`text-xs font-bold font-mono ${colorStyles[t.color].text} tabular-nums truncate`}
                   >
                     {t.value}
                   </p>
@@ -351,9 +392,9 @@ const ActiveShipment = memo(({
               ))}
             </div>
 
-            {/* Container utilization */}
-            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
-              <div className="flex items-center justify-between mb-2 gap-2">
+            {/* Container utilization — volume + payload */}
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] uppercase tracking-widest font-bold text-slate-500 dark:text-slate-400">
                   Container Fill
                 </span>
@@ -370,54 +411,83 @@ const ActiveShipment = memo(({
                   ))}
                 </select>
               </div>
-              <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-4 overflow-hidden">
-                <div
-                  className={`bar-fill h-full rounded-full ${containerPct > 95
-                    ? 'bg-gradient-to-r from-rose-500 to-red-500'
-                    : containerPct > 75
-                      ? 'bg-gradient-to-r from-amber-500 to-orange-500'
-                      : 'bg-gradient-to-r from-indigo-500 to-violet-500'
-                    }`}
-                  style={{ width: `${containerPct}%` }}
-                />
+
+              {/* Volume bar */}
+              <div>
+                <UtilizationBar pct={containerPct} />
+                <div className="flex justify-between mt-1.5">
+                  <span className="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400">
+                    Volume: {fmtCBM(totals.cbm)} / {cont.cbm} m³
+                  </span>
+                  <span
+                    className={`text-[11px] font-mono font-bold ${containerPct > 100
+                      ? 'text-rose-600 dark:text-rose-400'
+                      : containerPct > 95
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-indigo-600 dark:text-indigo-400'
+                      }`}
+                  >
+                    {containerPct.toFixed(2)}%
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between mt-1.5">
-                <span className="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400">
-                  {fmtCBM(totals.cbm)} / {CONTAINERS[containerType].cbm} m³
-                </span>
-                <span
-                  className={`text-[11px] font-mono font-bold ${containerPct > 95
-                    ? 'text-rose-600 dark:text-rose-400'
-                    : 'text-indigo-600 dark:text-indigo-400'
-                    }`}
-                >
-                  {containerPct.toFixed(2)}%
-                </span>
-              </div>
-              {containerPct > 0 && containerPct < 50 && (
-                <div className="mt-2.5 text-center text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 py-1.5 rounded border border-amber-200/50 dark:border-amber-500/20 shadow-sm">
-                  {(CONTAINERS[containerType].cbm - totals.cbm).toFixed(2)} m³ remaining in container
+
+              {/* Payload bar — only meaningful once weights are entered */}
+              {totals.grossWeight > 0 && (
+                <div>
+                  <UtilizationBar pct={payloadPct} />
+                  <div className="flex justify-between mt-1.5">
+                    <span className="text-[11px] font-mono font-bold text-slate-600 dark:text-slate-400">
+                      Payload: {totals.grossWeight.toFixed(0)} / {cont.maxPayloadKg.toLocaleString()} kg
+                    </span>
+                    <span
+                      className={`text-[11px] font-mono font-bold ${payloadPct > 100
+                        ? 'text-rose-600 dark:text-rose-400'
+                        : payloadPct > 95
+                          ? 'text-amber-600 dark:text-amber-400'
+                          : 'text-indigo-600 dark:text-indigo-400'
+                        }`}
+                    >
+                      {payloadPct.toFixed(2)}%
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Overfill / overweight warnings + multi-container suggestion */}
+              {(containerPct > 100 || payloadPct > 100) ? (
+                <div className="text-center text-[11px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 py-1.5 px-2 rounded border border-rose-200/60 dark:border-rose-500/20 shadow-sm">
+                  {containerPct > 100 && `Exceeds volume by ${overVolume.toFixed(2)} m³. `}
+                  {payloadPct > 100 && `Exceeds max payload by ${(overWeight / 1000).toFixed(2)} t. `}
+                  {containerPlan.count > 1 &&
+                    `Suggestion: ${containerPlan.count} × ${cont.label.replace(' (Usable)', '')} (limited by ${containerPlan.limitedBy}).`}
+                </div>
+              ) : containerPct > 0 && (
+                <div className="text-center text-[11px] font-bold text-slate-500 dark:text-slate-400 bg-white/60 dark:bg-slate-800/40 py-1.5 rounded border border-slate-200/60 dark:border-slate-600/40">
+                  {(cont.cbm - totals.cbm).toFixed(2)} m³ remaining
+                  {totals.grossWeight > 0 &&
+                    ` · ${((cont.maxPayloadKg - totals.grossWeight) / 1000).toFixed(2)} t payload margin`}
                 </div>
               )}
             </div>
 
             {/* Freight Mode + Chargeable Weight */}
             <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
-              <div className="flex items-center justify-between mb-2 gap-2">
+              <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
                 <span className="text-[10px] uppercase tracking-widest font-bold text-slate-500 dark:text-slate-400">
                   Freight Mode
                 </span>
-                <div className="flex items-center bg-slate-200 dark:bg-slate-700 rounded-lg p-0.5">
-                  {['ocean', 'air'].map((m) => (
+                <div className="flex items-center bg-slate-200 dark:bg-slate-700 rounded-lg p-0.5 flex-wrap gap-0.5">
+                  {Object.entries(FREIGHT_MODES).map(([key, m]) => (
                     <button
-                      key={m}
-                      onClick={() => setFreightMode(m)}
-                      className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase ${freightMode === m
+                      key={key}
+                      onClick={() => setFreightMode(key)}
+                      className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase whitespace-nowrap ${freightMode === key
                         ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-300 shadow-sm'
                         : 'text-slate-500 dark:text-slate-400'
                         }`}
                     >
-                      {m === 'ocean' ? '🚢 Ocean' : '✈️ Air'}
+                      {m.short}
                     </button>
                   ))}
                 </div>
@@ -449,9 +519,7 @@ const ActiveShipment = memo(({
                 </div>
               </div>
               <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2 text-center">
-                {freightMode === 'air'
-                  ? 'Air: 1 CBM = 167 kg · Chargeable = max(Gross, Volumetric)'
-                  : 'Ocean: Chargeable = Gross Weight only'}
+                {FREIGHT_MODES[freightMode]?.desc}
               </p>
             </div>
           </div>

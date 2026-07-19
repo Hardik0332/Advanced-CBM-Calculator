@@ -48,7 +48,7 @@ export const sanitizeNumeric = (val) => {
   if (val == null || val === '') return 0;
 
   // Clean string and parse
-  const n = parseFloat(String(val).replace(/,/g, '').replace(/[^\d.\-]/g, '').trim());
+  const n = parseFloat(String(val).replace(/,/g, '').replace(/[^\d.-]/g, '').trim());
 
   // Strict NaN fallback to prevent validation bypass
   return isNaN(n) ? 0 : n;
@@ -293,6 +293,8 @@ export const IMPORT_COLORS = [
  * @param {object} row - Raw data row.
  * @param {object} mapping - Field → column header mapping.
  * @param {object} dimConfig - Dimension configuration (combined/separate).
+ *   dimConfig.netWeightBasis / grossWeightBasis: 'shipper' (default) or 'unit' —
+ *   tells us whether the mapped weight columns are per-shipper or per-piece.
  * @param {number} slotIndex - Index for icon/color cycling.
  * @returns {object} A normalised product object.
  */
@@ -319,6 +321,15 @@ export const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
       ? sanitizeNumeric(row[mapping.cbm])
       : 0;
 
+  const packSize = sanitizeNumeric(row[mapping.packSize]) || 1;
+  const rawNet = sanitizeNumeric(row[mapping.netWeight]);
+  const rawGross = sanitizeNumeric(row[mapping.grossWeight]);
+  // Weight-basis: columns may hold per-shipper (default) or per-unit values.
+  const netWeightPerUnit =
+    dimConfig.netWeightBasis === 'unit' ? rawNet : rawNet / packSize;
+  const grossWeightPerShipper =
+    dimConfig.grossWeightBasis === 'unit' ? rawGross * packSize : rawGross;
+
   return {
     id: genId(), // stable counter-based ID
     name: String(row[mapping.name] || `Product ${slotIndex + 1}`).trim(),
@@ -331,39 +342,21 @@ export const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
     width,
     height,
     packingString: String(row[mapping.packingString] || row[mapping.packSize] || '').trim(),
-    packSize: sanitizeNumeric(row[mapping.packSize]) || 1,
-    netWeightPerUnit: sanitizeNumeric(row[mapping.netWeight]) / (sanitizeNumeric(row[mapping.packSize]) || 1),
-    grossWeightPerShipper: sanitizeNumeric(row[mapping.grossWeight]),
+    packSize,
+    netWeightPerUnit,
+    grossWeightPerShipper,
     ...(preCalcCBM > 0 && { cbmPerShipper: preCalcCBM }),
     rawData: row,
   };
 };
 
 /**
- * Transform all rows → product objects asynchronously in chunks.
- * Returns a Promise that resolves to the tagged products array.
- * Yielding every CHUNK_SIZE rows lets the browser render frames between chunks.
+ * Transform all rows → tagged product objects.
  */
-const CHUNK_SIZE = 500;
-
 export const applyMapping = (rows, mapping, dimConfig) => {
   // Pre-calc CBM is only valid when the user intentionally mapped NO dim columns.
   const hasDimMapping = !!mapping.length || !!mapping.width || !!mapping.height;
 
-  // For small datasets run synchronously to avoid async overhead
-  if (rows.length <= CHUNK_SIZE) {
-    return rows.map((r, i) => {
-      const p = buildProductFromRow(r, mapping, dimConfig, i);
-      const hasValidDims = p.length > 0 && p.width > 0 && p.height > 0;
-      const hasPreCalcCBM = !hasDimMapping && (p.cbmPerShipper || 0) > 0;
-      if (!hasValidDims && !hasPreCalcCBM)
-        return { ...p, status: 'skipped', skipReason: 'Missing Dimensions' };
-      return { ...p, status: 'new' };
-    });
-  }
-
-  // For larger datasets, process synchronously but still return an array
-  // (the async chunk approach is handled in ImportWizardModal via useMemo)
   return rows.map((r, i) => {
     const p = buildProductFromRow(r, mapping, dimConfig, i);
     const hasValidDims = p.length > 0 && p.width > 0 && p.height > 0;

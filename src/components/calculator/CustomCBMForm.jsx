@@ -1,16 +1,7 @@
-import { useState, useMemo, useCallback, memo } from 'react';
-import { flushSync } from 'react-dom';
+import { useState, useMemo, useCallback, useRef, memo } from 'react';
 import FormInput from '../ui/FormInput';
 import { PlusIcon, WarningIcon } from '../icons/Icons';
-
-// Adaptive CBM formatter — prevents 0.00 for small pharmaceutical/medical items.
-// Uses more decimal places only when the value is too small for 2dp to be meaningful.
-const fmtCBM = (v) => {
-  if (!v || v === 0) return '0.0000';
-  if (v < 0.0001) return v.toFixed(6);
-  if (v < 0.01)   return v.toFixed(4);
-  return v.toFixed(2);
-};
+import { fmtCBM } from '../../utils/calculations';
 
 /* ─── small helpers ────────────────────────────────────────────────────────── */
 
@@ -32,7 +23,9 @@ const pillInactive =
 const CustomCBMForm = memo(({
   form,
   updateForm,
-  unitSwitchWarning,
+  unitSwitch,
+  convertFormUnits,
+  dismissUnitSwitch,
   previewCBM,
   canAdd,
   handleAddToShipment,
@@ -46,6 +39,9 @@ const CustomCBMForm = memo(({
   const [innerPackQty, setInnerPackQty] = useState('');
   const [masterPackQty, setMasterPackQty] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  // Index of the keyboard-highlighted suggestion (-1 = none)
+  const [highlightIdx, setHighlightIdx] = useState(-1);
+  const inputRef = useRef(null);
 
   const panelCls = 'glass rounded-2xl shadow-card dark:shadow-card-dark';
 
@@ -93,13 +89,20 @@ const CustomCBMForm = memo(({
     }
   }, [packMode, multiTotal, handleAddToDirectory]);
 
-  const handleOpenDropdown = useCallback(() => setIsDropdownOpen(true), []);
+  const handleOpenDropdown = useCallback(() => {
+    setIsDropdownOpen(true);
+    setHighlightIdx(-1);
+  }, []);
   const handleCloseDropdown = useCallback(() => {
-    setTimeout(() => setIsDropdownOpen(false), 200);
+    setTimeout(() => {
+      setIsDropdownOpen(false);
+      setHighlightIdx(-1);
+    }, 200);
   }, []);
   const handleNameChange = useCallback((e) => {
     updateForm('name', e.target.value);
     setIsDropdownOpen(true);
+    setHighlightIdx(-1);
   }, [updateForm]);
 
   /* ── Memoized: Filter products for Item Name search dropdown ── */
@@ -131,6 +134,36 @@ const CustomCBMForm = memo(({
       })
       .slice(0, 5);
   }, [query, products]);
+
+  /** Shared selection logic for click + Enter key. */
+  const selectGroup = useCallback((group) => {
+    const product = group[0];
+    if (group.length === 1) {
+      handleProductClick(product);
+    } else {
+      updateForm('name', product.name);
+    }
+    setIsDropdownOpen(false);
+    setHighlightIdx(-1);
+  }, [handleProductClick, updateForm]);
+
+  /* ── Keyboard navigation: ↑/↓ move, Enter selects, Escape closes ── */
+  const handleNameKeyDown = useCallback((e) => {
+    if (!isDropdownOpen || matchingGroups.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightIdx((i) => (i + 1) % matchingGroups.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightIdx((i) => (i <= 0 ? matchingGroups.length - 1 : i - 1));
+    } else if (e.key === 'Enter' && highlightIdx >= 0) {
+      e.preventDefault();
+      selectGroup(matchingGroups[highlightIdx]);
+    } else if (e.key === 'Escape') {
+      setIsDropdownOpen(false);
+      setHighlightIdx(-1);
+    }
+  }, [isDropdownOpen, matchingGroups, highlightIdx, selectGroup]);
 
   const availableVariants = useMemo(() => {
     const exactName = (form.name || '').trim().toLowerCase();
@@ -206,12 +239,18 @@ const CustomCBMForm = memo(({
             <div className="relative">
               <input
                 id="item-name"
+                ref={inputRef}
                 type="text"
                 value={form.name}
                 onChange={handleNameChange}
                 onFocus={handleOpenDropdown}
                 onBlur={handleCloseDropdown}
+                onKeyDown={handleNameKeyDown}
                 autoComplete="off"
+                role="combobox"
+                aria-expanded={isDropdownOpen && matchingGroups.length > 0}
+                aria-controls="item-name-listbox"
+                aria-autocomplete="list"
                 className="w-full max-w-full bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-600/70
                            rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-slate-100
                            focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400/70
@@ -223,26 +262,31 @@ const CustomCBMForm = memo(({
 
           {/* ── Dropdown Overlay ── */}
           {isDropdownOpen && matchingGroups.length > 0 && (
-            <div className="absolute left-0 right-0 z-30 mt-1 max-h-56 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg divide-y divide-slate-100 dark:divide-slate-700/50">
-              {matchingGroups.map((group) => {
+            <div
+              id="item-name-listbox"
+              role="listbox"
+              className="absolute left-0 right-0 z-30 mt-1 max-h-56 overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg divide-y divide-slate-100 dark:divide-slate-700/50"
+            >
+              {matchingGroups.map((group, idx) => {
                 const product = group[0];
+                const isHighlighted = idx === highlightIdx;
                 return (
                   <button
                     key={product.id}
                     type="button"
+                    role="option"
+                    aria-selected={isHighlighted}
                     onMouseDown={(e) => {
                       // Prevent input blur before onClick fires
                       e.preventDefault();
                     }}
-                    onClick={() => {
-                      if (group.length === 1) {
-                        handleProductClick(product);
-                      } else {
-                        updateForm('name', product.name);
-                      }
-                      setIsDropdownOpen(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center justify-between gap-2 transition-colors"
+                    onMouseEnter={() => setHighlightIdx(idx)}
+                    onClick={() => selectGroup(group)}
+                    className={`w-full text-left px-4 py-2.5 flex items-center justify-between gap-2 transition-colors
+                      ${isHighlighted
+                        ? 'bg-indigo-50 dark:bg-indigo-950/40'
+                        : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                      }`}
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-base flex-shrink-0">{product.icon}</span>
@@ -256,7 +300,9 @@ const CustomCBMForm = memo(({
                           </p>
                         ) : (
                           <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">
-                            {Number(product.length).toFixed(2)}×{Number(product.width).toFixed(2)}×{Number(product.height).toFixed(2)} {product.unit} · {product.packSize} pcs
+                            {product.length > 0
+                              ? `${Number(product.length).toFixed(2)}×${Number(product.width).toFixed(2)}×${Number(product.height).toFixed(2)} ${product.unit}`
+                              : `pre-calc ${fmtCBM(Number(product.cbmPerShipper) || 0)} m³`} · {product.packSize} pcs
                           </p>
                         )}
                       </div>
@@ -345,16 +391,34 @@ const CustomCBMForm = memo(({
           </div>
         </div>
 
-        {/* ── Unit switch warning ── */}
-        {unitSwitchWarning && (
-          <div className="mb-3 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 flex items-start gap-2 fade-in">
-            <span className="text-amber-500 flex-shrink-0 mt-0.5">
-              <WarningIcon />
-            </span>
-            <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
-              Values not converted — existing dimensions are now treated as{' '}
-              <strong>{form.unit}</strong>.
-            </p>
+        {/* ── Unit switch warning with one-click conversion ── */}
+        {unitSwitch && (
+          <div className="mb-3 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 fade-in">
+            <div className="flex items-start gap-2">
+              <span className="text-amber-500 flex-shrink-0 mt-0.5">
+                <WarningIcon />
+              </span>
+              <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+                Dimensions were entered in <strong>{unitSwitch.from}</strong> but are
+                now treated as <strong>{unitSwitch.to}</strong>.
+              </p>
+            </div>
+            <div className="flex gap-2 mt-2">
+              <button
+                type="button"
+                onClick={convertFormUnits}
+                className="flex-1 py-1.5 px-2 rounded-lg text-[10px] font-bold uppercase tracking-wide bg-amber-500 hover:bg-amber-400 text-white shadow-sm active:scale-[0.98]"
+              >
+                Convert {unitSwitch.from} → {unitSwitch.to}
+              </button>
+              <button
+                type="button"
+                onClick={dismissUnitSwitch}
+                className="flex-1 py-1.5 px-2 rounded-lg text-[10px] font-bold uppercase tracking-wide bg-white dark:bg-slate-800 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/60 active:scale-[0.98]"
+              >
+                Keep values
+              </button>
+            </div>
           </div>
         )}
 
@@ -485,13 +549,20 @@ const CustomCBMForm = memo(({
 
           {/* Shipper count derivation row */}
           {form.totalPcs > 0 && effectivePack > 0 ? (
-            <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-700">
-              <span className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
-                {form.totalPcs} ÷ {effectivePack}
-              </span>
-              <span className="text-sm font-bold font-mono text-emerald-600 dark:text-emerald-400">
-                = {derivedShippers} shippers
-              </span>
+            <div className="px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-700">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
+                  {form.totalPcs} ÷ {effectivePack}
+                </span>
+                <span className="text-sm font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                  = {derivedShippers} shippers
+                </span>
+              </div>
+              {Number(form.totalPcs) % effectivePack !== 0 && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold mt-1">
+                  ⚠ Last box partial: {Number(form.totalPcs) - (derivedShippers - 1) * effectivePack}/{effectivePack} pcs
+                </p>
+              )}
             </div>
           ) : null}
         </div>
@@ -544,7 +615,7 @@ const CustomCBMForm = memo(({
                     Net Wt / Pcs
                   </span>
                   <span className="text-sm font-bold font-mono text-amber-700 dark:text-amber-300">
-                    {weightTotals.perPcsNet.toFixed(2)} kg
+                    {weightTotals.perPcsNet.toFixed(3)} kg
                   </span>
                 </div>
                 <div className="w-px h-8 bg-amber-200 dark:bg-amber-700/50" />
@@ -553,7 +624,7 @@ const CustomCBMForm = memo(({
                     Gross Wt / Pcs
                   </span>
                   <span className="text-sm font-bold font-mono text-amber-700 dark:text-amber-300">
-                    {weightTotals.perPcsGross.toFixed(2)} kg
+                    {weightTotals.perPcsGross.toFixed(3)} kg
                   </span>
                 </div>
               </div>

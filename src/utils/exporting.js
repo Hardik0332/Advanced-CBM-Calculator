@@ -1,18 +1,76 @@
 /**
- * Export utilities for Excel and PDF generation.
+ * Export utilities for Excel, CSV and PDF generation.
+ *
+ * Precision policy: spreadsheet exports (Excel/CSV) always carry the RAW
+ * numeric values — rounding is a display concern, never baked into the data.
+ * Only the PDF (a purely visual document) uses formatted strings.
  */
 import * as XLSX from 'xlsx';
+import Papa from 'papaparse';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
-import { CONTAINERS } from './calculations';
+import autoTable from 'jspdf-autotable';
+import {
+  CONTAINERS,
+  FREIGHT_MODES,
+  fmtCBM,
+  containersNeeded,
+} from './calculations';
 
-// Adaptive CBM formatter — prevents 0.00 for small pharmaceutical/medical items.
-// Uses more decimal places only when the value is too small for 2dp to be meaningful.
-const fmtCBM = (v) => {
-  if (!v || v === 0) return '0.0000';
-  if (v < 0.0001) return v.toFixed(6);
-  if (v < 0.01)   return v.toFixed(4);
-  return v.toFixed(2);
+/** Round only to kill float noise (12 significant-ish decimals), not precision. */
+const raw = (v) => {
+  const n = Number(v) || 0;
+  return Math.round(n * 1e9) / 1e9;
+};
+
+const itemTotalPcs = (item) =>
+  item.totalPcs || (item.packSize || 1) * (item.quantity || 1);
+
+const exportFileName = (base, poNumber, ext) =>
+  `${base}${poNumber ? '_' + poNumber.replace(/\s+/g, '_') : ''}_${new Date()
+    .toISOString()
+    .slice(0, 10)}.${ext}`;
+
+/** Shared row-builder so Excel and CSV always agree. */
+const buildRows = (shipment, totals) => {
+  const rows = shipment.map((item, i) => ({
+    '#': i + 1,
+    'Item Name': item.name,
+    Packing: item.packingString || '',
+    L: raw(item.length),
+    W: raw(item.width),
+    H: raw(item.height),
+    Unit: item.unit,
+    'Pack Size': raw(item.packSize),
+    'Qty (Shippers)': raw(item.quantity),
+    'Total Pcs': raw(itemTotalPcs(item)),
+    'Net Wt/Unit (kg)': raw(item.netWeightPerUnit),
+    'Gross Wt/Shipper (kg)': raw(item.grossWeightPerShipper),
+    'CBM/Shipper': raw(item.cbmPerShipper),
+    'Total CBM': raw(item.cbmPerShipper * item.quantity),
+    'Total Net Wt (kg)': raw(item.netWeightPerUnit * itemTotalPcs(item)),
+    'Total Gross Wt (kg)': raw(item.grossWeightPerShipper * item.quantity),
+  }));
+
+  rows.push({
+    '#': '',
+    'Item Name': 'TOTALS',
+    Packing: '',
+    L: '',
+    W: '',
+    H: '',
+    Unit: '',
+    'Pack Size': '',
+    'Qty (Shippers)': raw(totals.shippers),
+    'Total Pcs': raw(totals.totalPcs),
+    'Net Wt/Unit (kg)': '',
+    'Gross Wt/Shipper (kg)': '',
+    'CBM/Shipper': '',
+    'Total CBM': raw(totals.cbm),
+    'Total Net Wt (kg)': raw(totals.netWeight),
+    'Total Gross Wt (kg)': raw(totals.grossWeight),
+  });
+
+  return rows;
 };
 
 /**
@@ -20,59 +78,64 @@ const fmtCBM = (v) => {
  * @param {Array} shipment - Array of shipment items.
  * @param {object} totals - Computed totals object.
  * @param {string} poNumber - PO / reference number.
+ * @param {string} containerType - Container type key (e.g. '40hc').
+ * @param {string} freightMode - Key into FREIGHT_MODES.
  */
-export const exportExcel = (shipment, totals, poNumber) => {
-  const rows = shipment.map((item, i) => ({
-    '#': i + 1,
-    'Item Name': item.name,
-    L: +item.length.toFixed(2),
-    W: +item.width.toFixed(2),
-    H: +item.height.toFixed(2),
-    Unit: item.unit,
-    'Pack Size': item.packSize,
-    'Qty (Shippers)': item.quantity,
-    'Net Wt/Unit (kg)': +item.netWeightPerUnit.toFixed(2),
-    'Gross Wt/Shipper (kg)': +item.grossWeightPerShipper.toFixed(2),
-    'CBM/Shipper': +fmtCBM(item.cbmPerShipper),
-    'Total CBM': +fmtCBM(item.cbmPerShipper * item.quantity),
-    'Total Gross Wt (kg)': +(
-      item.grossWeightPerShipper * item.quantity
-    ).toFixed(2),
-  }));
+export const exportExcel = (shipment, totals, poNumber, containerType, freightMode) => {
+  const rows = buildRows(shipment, totals);
 
-  // Totals row
-  rows.push({
-    '#': '',
-    'Item Name': 'TOTALS',
-    L: '',
-    W: '',
-    H: '',
-    Unit: '',
-    'Pack Size': '',
-    'Qty (Shippers)': totals.shippers,
-    'Net Wt/Unit (kg)': '',
-    'Gross Wt/Shipper (kg)': '',
-    'CBM/Shipper': '',
-    'Total CBM': +fmtCBM(totals.cbm),
-    'Total Gross Wt (kg)': +totals.grossWeight.toFixed(2),
-  });
+  // Freight/container summary appended below the table
+  const mode = FREIGHT_MODES[freightMode];
+  const cont = CONTAINERS[containerType];
+  const volumetric = totals.cbm * (mode?.volumetricFactor || 0);
+  const chargeable = Math.max(totals.grossWeight, volumetric);
+  rows.push({});
+  rows.push({ '#': '', 'Item Name': `Freight Mode: ${mode?.label || freightMode}` });
+  rows.push({ '#': '', 'Item Name': 'Volumetric Wt (kg)', L: raw(volumetric) });
+  rows.push({ '#': '', 'Item Name': 'Chargeable Wt (kg)', L: raw(chargeable) });
+  if (cont) {
+    rows.push({
+      '#': '',
+      'Item Name': `Container: ${cont.label}`,
+      L: `${((totals.cbm / cont.cbm) * 100).toFixed(2)}% volume`,
+      W: `${((totals.grossWeight / cont.maxPayloadKg) * 100).toFixed(2)}% payload`,
+    });
+  }
 
   const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [
+    { wch: 4 }, { wch: 28 }, { wch: 14 }, { wch: 8 }, { wch: 8 }, { wch: 8 },
+    { wch: 6 }, { wch: 9 }, { wch: 13 }, { wch: 10 }, { wch: 15 }, { wch: 19 },
+    { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 18 },
+  ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Shipment');
-  XLSX.writeFile(
-    wb,
-    `shipment${poNumber ? '_' + poNumber.replace(/\s+/g, '_') : ''}_${new Date().toISOString().slice(0, 10)}.xlsx`
-  );
+  XLSX.writeFile(wb, exportFileName('shipment', poNumber, 'xlsx'));
 };
 
 /**
- * Export shipment data to a PDF file.
+ * Export shipment data to a CSV file (same columns as the Excel export).
+ */
+export const exportCSV = (shipment, totals, poNumber) => {
+  const csv = Papa.unparse(buildRows(shipment, totals));
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = exportFileName('shipment', poNumber, 'csv');
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+/**
+ * Export shipment data to a PDF packing list.
  * @param {Array} shipment - Array of shipment items.
  * @param {object} totals - Computed totals object.
  * @param {string} poNumber - PO / reference number.
  * @param {string} containerType - Container type key (e.g. '40hc').
- * @param {string} freightMode - 'ocean' or 'air'.
+ * @param {string} freightMode - Key into FREIGHT_MODES.
  */
 export const exportPDF = (
   shipment,
@@ -94,50 +157,50 @@ export const exportPDF = (
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100);
-  if (poNumber) doc.text(`PO / Reference: ${poNumber}`, 14, 26);
-  doc.text(
-    `Date: ${new Date().toLocaleDateString()}`,
-    14,
-    poNumber ? 32 : 26
-  );
-  doc.text(
-    `Freight Mode: ${freightMode === 'air' ? 'Air' : 'Ocean'}`,
-    14,
-    poNumber ? 38 : 32
-  );
+  const mode = FREIGHT_MODES[freightMode];
+  let headerY = 26;
+  if (poNumber) {
+    doc.text(`PO / Reference: ${poNumber}`, 14, headerY);
+    headerY += 6;
+  }
+  doc.text(`Date: ${new Date().toLocaleDateString()}`, 14, headerY);
+  headerY += 6;
+  doc.text(`Freight Mode: ${mode?.label || freightMode}`, 14, headerY);
+  headerY += 5;
 
   // Table
   const tableData = shipment.map((item, i) => [
     i + 1,
-    item.name,
+    item.name + (item.packingString ? `\n(${item.packingString})` : ''),
     item.length || item.width || item.height
-      ? `${item.length}×${item.width}×${item.height}`
+      ? `${item.length}×${item.width}×${item.height} ${item.unit}`
       : 'pre-calc',
-    item.unit,
     item.packSize,
     item.quantity,
-    item.netWeightPerUnit.toFixed(2),
+    itemTotalPcs(item),
+    item.netWeightPerUnit.toFixed(3),
     item.grossWeightPerShipper.toFixed(2),
     fmtCBM(item.cbmPerShipper),
     fmtCBM(item.cbmPerShipper * item.quantity),
     (item.grossWeightPerShipper * item.quantity).toFixed(2),
   ]);
 
-  doc.autoTable({
-    startY: poNumber ? 43 : 37,
+  // jspdf-autotable v5: functional API — doc.autoTable() no longer exists.
+  autoTable(doc, {
+    startY: headerY,
     head: [
       [
         '#',
         'Item',
         'Dims',
-        'Unit',
         'Pack',
         'Qty',
+        'Total Pcs',
         'Net Wt/Unit',
         'Gross Wt/Ship',
         'CBM/Ship',
         'Total CBM',
-        'Total Wt',
+        'Total Wt (kg)',
       ],
     ],
     body: tableData,
@@ -152,23 +215,43 @@ export const exportPDF = (
   });
 
   // Summary footer
-  const finalY = doc.lastAutoTable.finalY + 8;
+  let finalY = (doc.lastAutoTable?.finalY || headerY) + 8;
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(0);
-  const cont = CONTAINERS[containerType];
-  const pct = cont
-    ? Math.min(100, (totals.cbm / cont.cbm) * 100).toFixed(2)
-    : '—';
+
+  const volumetric = totals.cbm * (mode?.volumetricFactor || 0);
+  const chargeable = Math.max(totals.grossWeight, volumetric);
   doc.text(
-    `Total CBM: ${fmtCBM(totals.cbm)} m³  |  Gross Weight: ${totals.grossWeight.toFixed(2)} kg  |  Shippers: ${totals.shippers}  |  Container: ${cont ? cont.label : '—'} (${pct}%)`,
+    `Total CBM: ${fmtCBM(totals.cbm)} m³  |  Net Wt: ${totals.netWeight.toFixed(2)} kg  |  Gross Wt: ${totals.grossWeight.toFixed(2)} kg  |  Shippers: ${totals.shippers}  |  Total Pcs: ${totals.totalPcs.toLocaleString()}`,
+    14,
+    finalY
+  );
+  finalY += 6;
+  doc.text(
+    `Volumetric Wt: ${volumetric.toFixed(2)} kg  |  Chargeable Wt: ${chargeable.toFixed(2)} kg  (${mode?.label || freightMode})`,
     14,
     finalY
   );
 
-  doc.save(
-    `shipment${poNumber ? '_' + poNumber.replace(/\s+/g, '_') : ''}_${new Date().toISOString().slice(0, 10)}.pdf`
-  );
+  const cont = CONTAINERS[containerType];
+  if (cont) {
+    finalY += 6;
+    const volPct = (totals.cbm / cont.cbm) * 100;
+    const wtPct = (totals.grossWeight / cont.maxPayloadKg) * 100;
+    let line = `Container: ${cont.label}  |  Volume: ${volPct.toFixed(2)}%  |  Payload: ${wtPct.toFixed(2)}% of ${(cont.maxPayloadKg / 1000).toFixed(1)} t`;
+    const plan = containersNeeded(totals, containerType);
+    if (plan.count > 1) {
+      line += `  |  REQUIRES ${plan.count} CONTAINERS (limited by ${plan.limitedBy})`;
+      doc.setTextColor(220, 38, 38);
+    } else if (volPct > 100 || wtPct > 100) {
+      doc.setTextColor(220, 38, 38);
+    }
+    doc.text(line, 14, finalY);
+    doc.setTextColor(0);
+  }
+
+  doc.save(exportFileName('shipment', poNumber, 'pdf'));
 };
 
 const getDisplayRawData = (product) => {
@@ -186,31 +269,18 @@ const getDisplayRawData = (product) => {
   };
 };
 
-const formatValue = (v) => {
-  if (v === null || v === undefined || v === '') return '';
-  if (typeof v === 'number') {
-    return Number.isInteger(v) ? String(v) : v.toFixed(2);
-  }
-  if (typeof v === 'string' && !isNaN(v) && v.trim() !== '') {
-    const num = Number(v);
-    if (!Number.isInteger(num)) {
-      return num.toFixed(2);
-    }
-  }
-  return String(v);
-};
-
 /**
  * Export raw product data to an Excel file.
+ * Values are written as-is (raw) — no display rounding.
  * @param {Array|object} data - Either an array of products (catalog mode) or a single product (single mode).
  */
 export const exportRawDataExcel = (data) => {
   const isCatalogMode = Array.isArray(data);
-  let rows = [];
+  let rows;
 
   if (isCatalogMode) {
     if (data.length === 0) return;
-    
+
     // Extract all unique keys across all rawData objects
     const allKeys = new Set();
     data.forEach((product) => {
@@ -219,23 +289,22 @@ export const exportRawDataExcel = (data) => {
     });
 
     const headers = Array.from(allKeys);
-    
+
     rows = data.map((product) => {
       const row = { 'Product Name': product.name };
       const rawData = getDisplayRawData(product);
-      headers.forEach(h => {
-        row[h] = rawData[h] !== null && rawData[h] !== undefined ? formatValue(rawData[h]) : '';
+      headers.forEach((h) => {
+        row[h] = rawData[h] !== null && rawData[h] !== undefined ? rawData[h] : '';
       });
       return row;
     });
-
   } else {
     // Single mode
     const rawData = getDisplayRawData(data);
     if (Object.keys(rawData).length === 0) return;
     const row = { 'Product Name': data.name };
     Object.entries(rawData).forEach(([k, v]) => {
-      row[k] = v !== null && v !== undefined ? formatValue(v) : '';
+      row[k] = v !== null && v !== undefined ? v : '';
     });
     rows = [row];
   }
@@ -243,8 +312,8 @@ export const exportRawDataExcel = (data) => {
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Raw Data Summary');
-  
-  const fileName = isCatalogMode 
+
+  const fileName = isCatalogMode
     ? `catalog_summary_${new Date().toISOString().slice(0, 10)}.xlsx`
     : `product_summary_${(data.name || 'product').replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
 

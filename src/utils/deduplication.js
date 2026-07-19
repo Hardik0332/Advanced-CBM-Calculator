@@ -8,11 +8,13 @@
 
 /**
  * Generate a composite key for a product.
+ * Includes the unit so "50×40×30 inches" is never treated as a duplicate
+ * of "50×40×30 cm".
  * @param {object} p - The product object.
  * @returns {string} A pipe-delimited composite key.
  */
 export const compositeKey = (p) =>
-  `${p.name.trim().toLowerCase()}|${p.length}|${p.width}|${p.height}|${p.packSize}|${p.netWeightPerUnit}|${p.grossWeightPerShipper}|${p.cbmPerShipper || 0}`;
+  `${p.name.trim().toLowerCase()}|${p.unit || 'cm'}|${p.length}|${p.width}|${p.height}|${p.packSize}|${p.netWeightPerUnit}|${p.grossWeightPerShipper}|${p.cbmPerShipper || 0}`;
 
 /**
  * Merge incoming products into existing, skipping exact duplicates.

@@ -38,7 +38,7 @@ const ProductSummaryModal = ({ isOpen, onClose, data }) => {
   const renderSingleMode = () => {
     const rawData = getDisplayRawData(data);
     const entries = Object.entries(rawData).filter(
-      ([key, value]) => value !== null && value !== undefined && value !== ''
+      ([, value]) => value !== null && value !== undefined && value !== ''
     );
 
     return (
