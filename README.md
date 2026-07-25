@@ -16,7 +16,7 @@
 ---
 
 <div align="center">
-  <img src="src/assets/hero.png" alt="CBM Calculator" width="180" />
+  <img src="public/favicon.svg" alt="CBM Calculator logo" width="120" height="120" />
 </div>
 
 > A fast, offline-capable web app for logistics professionals to calculate cubic meters (CBM), manage product catalogs, track shipments, and export reports — all in one polished three-panel dashboard. No backend, no sign-up; everything persists locally.

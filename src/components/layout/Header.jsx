@@ -1,7 +1,7 @@
 /**
  * Header — Top bar with title and theme toggle.
  */
-import { BoxIcon, SunIcon, MoonIcon, MonitorIcon } from '../icons/Icons';
+import { SunIcon, MoonIcon, MonitorIcon } from '../icons/Icons';
 
 /* ── Theme Toggle sub-component ── */
 const ThemeToggle = ({ mode, setTheme }) => {
@@ -44,9 +44,13 @@ const Header = ({ mode, setTheme }) => (
   <header className="mb-6 sm:mb-8">
     <div className="flex items-center justify-between gap-4">
       <div className="flex items-center gap-3 min-w-0">
-        <div className="p-2 bg-accent-600 text-white rounded-lg flex-shrink-0 shadow-panel">
-          <BoxIcon />
-        </div>
+        <img
+          src="/favicon.svg"
+          alt="CBM Calculator logo"
+          width="40"
+          height="40"
+          className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex-shrink-0"
+        />
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl lg:text-[1.7rem] font-bold text-surface-900 dark:text-surface-50 tracking-tight truncate">
             CBM Calculator
