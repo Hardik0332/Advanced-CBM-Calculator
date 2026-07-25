@@ -33,8 +33,6 @@
 |:---:|:---:|
 | ![Import wizard](docs/screenshots/import.png) | ![Product summary](docs/screenshots/summary.png) |
 
-> 📸 Screenshots live in [`docs/screenshots/`](docs/screenshots/). Replace the placeholders with your own captures — the tables above render them automatically.
-
 ---
 
 ## ✨ Features
