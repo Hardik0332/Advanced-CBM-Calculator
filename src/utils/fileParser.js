@@ -276,14 +276,13 @@ export const IMPORT_ICONS = [
   '🧴', '🪣', '🖥️', '🔩', '🗄️', '🛢️', '🔋',
 ];
 
+/*
+ * Product card tints. The redesign uses a single flat accent surface for the
+ * active card (applied directly in ProductDirectory), so these no longer carry
+ * per-slot rainbow gradients — kept as a stable, neutral fallback shape.
+ */
 export const IMPORT_COLORS = [
-  { color: 'from-violet-100 to-indigo-100', border: 'border-violet-200' },
-  { color: 'from-sky-100 to-cyan-100', border: 'border-sky-200' },
-  { color: 'from-lime-100 to-emerald-100', border: 'border-lime-200' },
-  { color: 'from-fuchsia-100 to-pink-100', border: 'border-fuchsia-200' },
-  { color: 'from-orange-100 to-amber-100', border: 'border-orange-200' },
-  { color: 'from-teal-100 to-cyan-100', border: 'border-teal-200' },
-  { color: 'from-rose-100 to-pink-100', border: 'border-rose-200' },
+  { color: 'from-accent-50 to-accent-50', border: 'border-accent-200' },
 ];
 
 /* ── Build a product from a raw row ── */

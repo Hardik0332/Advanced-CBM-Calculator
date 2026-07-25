@@ -101,21 +101,21 @@ const ManualAddModal = memo(({ isOpen, onClose, onSave, editingProduct }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-slate-900/50 dark:bg-slate-950/70 backdrop-blur-sm wizard-backdrop"
+        className="absolute inset-0 bg-surface-900/40 dark:bg-surface-900/70 backdrop-blur-sm wizard-backdrop"
         onClick={onClose}
       />
       <div
-        className="relative w-full max-w-md bg-white/95 dark:bg-slate-900/95 rounded-2xl shadow-2xl border border-slate-200/80 dark:border-slate-700/80 wizard-panel"
+        className="relative w-full max-w-md bg-white dark:bg-surface-800 rounded-2xl shadow-pop dark:shadow-pop-dark border border-surface-200 dark:border-surface-700 wizard-panel"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
-          <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-200 dark:border-surface-700">
+          <h2 className="text-base font-bold text-surface-800 dark:text-surface-50">
             {editingProduct ? '✏️ Edit Product' : '➕ Add Product Manually'}
           </h2>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+            className="p-2 rounded-lg text-surface-400 hover:text-surface-700 dark:hover:text-surface-50 hover:bg-surface-100 dark:hover:bg-surface-700"
           >
             <CloseIcon />
           </button>
@@ -130,7 +130,7 @@ const ManualAddModal = memo(({ isOpen, onClose, onSave, editingProduct }) => {
           />
 
           {/* Entry mode toggle */}
-          <div className="flex gap-1 p-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+          <div className="flex gap-1 p-1 rounded-full bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700">
             {[
               ['dims', 'Dimensions (L×W×H)'],
               ['cbm', 'Pre-calculated CBM'],
@@ -141,8 +141,8 @@ const ManualAddModal = memo(({ isOpen, onClose, onSave, editingProduct }) => {
                 onClick={() => setEntryMode(mode)}
                 className={`flex-1 py-1.5 px-2 text-[10px] font-bold uppercase tracking-wide rounded-full
                   ${entryMode === mode
-                    ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-md'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                    ? 'bg-accent-600 text-white shadow-md'
+                    : 'text-surface-500 dark:text-surface-300 hover:text-surface-700 dark:hover:text-surface-50'
                   }`}
               >
                 {label}
@@ -183,8 +183,8 @@ const ManualAddModal = memo(({ isOpen, onClose, onSave, editingProduct }) => {
                     onClick={() => up('unit', u)}
                     className={`py-1.5 rounded-lg text-[10px] font-bold uppercase ${
                       f.unit === u
-                        ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-600'
-                        : 'bg-slate-50 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-600'
+                        ? 'bg-accent-50 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 border border-accent-300 dark:border-accent-700'
+                        : 'bg-surface-50 dark:bg-surface-800 text-surface-400 border border-surface-200 dark:border-surface-700'
                     }`}
                   >
                     {u}
@@ -232,8 +232,8 @@ const ManualAddModal = memo(({ isOpen, onClose, onSave, editingProduct }) => {
             className={`w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 mt-2
               ${
                 canSave
-                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:shadow-glow'
-                  : 'bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-600'
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  : 'bg-surface-100 dark:bg-surface-700 text-surface-400 cursor-not-allowed border border-surface-200 dark:border-surface-700'
               }`}
           >
             <CheckCircleIcon /> {editingProduct ? 'Save Changes' : 'Save to Directory'}

@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /* ══════════════════════════════════════════════════════════
-   Global Styles (migrated from index.html <style> block)
+   Global Styles — flat, hairline, editorial system.
    ══════════════════════════════════════════════════════════ */
 
 *,
@@ -34,24 +34,25 @@
   transition: none !important;
 }
 
-
 body {
   font-family: 'Inter', system-ui, sans-serif;
-  background: #f8fafc;
-  color: #334155;
+  background: #faf9f7;
+  color: #33302b;
   min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 .dark body,
 body.dark {
-  background: #0f172a;
-  color: #cbd5e1;
+  background: #100f0d;
+  color: #c7c2ba;
 }
 
-/* ── Custom scrollbar (light) ── */
+/* ── Custom scrollbar (light) — thin, neutral ── */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -59,53 +60,64 @@ body.dark {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #cdc7bd;
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #a8a094;
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #37332e;
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #4a453e;
 }
 
-/* ── Glassmorphic card ── */
+/* ── Panel — flat surface with a single hairline border (was glassmorphism) ── */
+.panel {
+  background: #ffffff;
+  border: 1px solid #e2ded7;
+}
+
+.dark .panel {
+  background: #191714;
+  border: 1px solid #2a2724;
+}
+
+/* Backwards-compat: any residual .glass consumers get the flat panel too. */
 .glass {
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  background: #ffffff;
+  border: 1px solid #e2ded7;
 }
 
 .dark .glass {
-  background: rgba(15, 23, 42, 0.72);
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  border: 1px solid rgba(99, 102, 241, 0.12);
-  box-shadow: 0 4px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: #191714;
+  border: 1px solid #2a2724;
 }
 
-/* ── Shimmer header text ── */
+/* ── Wordmark — plain high-contrast ink, no shimmer gradient ── */
 .shimmer-text {
-  background: linear-gradient(135deg, #4f46e5, #6366f1, #8b5cf6, #06b6d4, #4f46e5);
-  background-size: 400% 400%;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #1a1815;
 }
 
-/* ── Fade-in card animation (Removed) ── */
-.fade-in {}
+.dark .shimmer-text {
+  color: #f4f2ef;
+}
 
-/* ── Pulse glow on totals (Removed) ── */
+/* ── Removed decorative hooks (kept as no-ops for compatibility) ── */
+.fade-in {}
 .pulse-glow {}
+.wizard-backdrop {}
+.wizard-panel {}
+.drag-pulse {}
+
+/* Ambient orbs fully disabled — the class no longer renders anything. */
+.orb {
+  display: none !important;
+}
 
 /* ── Spinner ── */
 @keyframes spin {
@@ -118,13 +130,6 @@ body.dark {
   animation: spin 0.7s linear infinite;
   transition: none !important;
 }
-
-/* ── Wizard backdrop (Removed) ── */
-.wizard-backdrop {}
-.wizard-panel {}
-
-/* ── Drag-over pulse (Removed) ── */
-.drag-pulse {}
 
 /* ── Hide number input spinners ── */
 input[type='number']::-webkit-inner-spin-button,
@@ -143,16 +148,7 @@ input[type='number'] {
     background-color 500ms ease-in-out !important;
 }
 
-/* ── Ambient orbs ── */
-.orb {
-  pointer-events: none;
-  border-radius: 9999px;
-  position: fixed;
-  filter: blur(80px);
-  transition: none !important;
-}
-
 /* ── Progress bar fill animation ── */
 .bar-fill {
-  transition: width 0.6s cubic-bezier(0.25, 1, 0.5, 1) !important;
+  transition: width 0.5s cubic-bezier(0.25, 1, 0.5, 1) !important;
 }

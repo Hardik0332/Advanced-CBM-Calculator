@@ -7,7 +7,7 @@ const FormInput = memo(({ id, label, value, onChange, type = 'number', step, min
   <div className="space-y-1.5 min-w-0">
     <label
       htmlFor={id}
-      className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate"
+      className="block text-xs font-semibold text-surface-600 dark:text-surface-400 uppercase tracking-wider truncate"
     >
       {label}
     </label>
@@ -19,14 +19,14 @@ const FormInput = memo(({ id, label, value, onChange, type = 'number', step, min
         min={min || '0'}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full max-w-full bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-600/70
-                   rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-slate-100
-                   focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400/70
-                   placeholder-slate-300 dark:placeholder-slate-600"
+        className="w-full max-w-full bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700
+                   rounded-lg px-3 py-2.5 text-sm font-medium text-surface-800 dark:text-surface-50
+                   focus:outline-none focus:ring-2 focus:ring-accent-500/40 focus:border-accent-400/70
+                   placeholder-surface-400 dark:placeholder-surface-500"
         placeholder={`0`}
       />
       {suffix && (
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 dark:text-slate-500 font-semibold pointer-events-none">
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-surface-500 dark:text-surface-400 font-semibold pointer-events-none">
           {suffix}
         </span>
       )}

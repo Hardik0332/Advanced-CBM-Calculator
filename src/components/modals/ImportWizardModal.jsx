@@ -36,8 +36,8 @@ const StepIndicator = ({ currentStep }) => {
                 ${currentStep > s.num
                   ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 border-2 border-emerald-300 dark:border-emerald-700'
                   : currentStep === s.num
-                    ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 border-2 border-indigo-400 shadow-glow'
-                    : 'bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-500 border-2 border-slate-200 dark:border-slate-600'
+                    ? 'bg-accent-100 dark:bg-accent-900/50 text-accent-600 dark:text-accent-300 border-2 border-accent-400'
+                    : 'bg-surface-100 dark:bg-surface-700 text-surface-500 dark:text-surface-300 border-2 border-surface-200 dark:border-surface-700'
                 }`}
             >
               {currentStep > s.num ? <CheckCircleIcon /> : s.num}
@@ -45,8 +45,8 @@ const StepIndicator = ({ currentStep }) => {
             <span
               className={`text-xs font-medium hidden sm:block
                 ${currentStep >= s.num
-                  ? 'text-slate-700 dark:text-slate-200'
-                  : 'text-slate-400 dark:text-slate-600'
+                  ? 'text-surface-700 dark:text-surface-50'
+                  : 'text-surface-500 dark:text-surface-400'
                 }`}
             >
               {s.label}
@@ -57,7 +57,7 @@ const StepIndicator = ({ currentStep }) => {
               className={`w-8 h-0.5 mx-1 rounded
                 ${currentStep > s.num
                   ? 'bg-emerald-300 dark:bg-emerald-700'
-                  : 'bg-slate-200 dark:bg-slate-700'
+                  : 'bg-surface-200 dark:bg-surface-700'
                 }`}
             />
           )}
@@ -121,10 +121,10 @@ const FileUploadStep = ({ onFileParsed }) => {
     <div className="fade-in space-y-4">
       {/* Sheet selector — shown only for multi-sheet workbooks */}
       {parsedFile && parsedFile.sheetNames && parsedFile.sheetNames.length > 1 && (
-        <div className="p-4 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 fade-in">
-          <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-3">
+        <div className="p-4 rounded-2xl bg-accent-50/80 dark:bg-accent-950/30 border border-accent-200 dark:border-accent-800 fade-in">
+          <p className="text-xs font-bold text-surface-700 dark:text-surface-300 uppercase tracking-wider mb-3">
             📋 {parsedFile.sheetNames.length} sheets found in{' '}
-            <span className="text-indigo-600 dark:text-indigo-400">
+            <span className="text-accent-600 dark:text-accent-300">
               {parsedFile.fileName}
             </span>{' '}
             — pick one to import
@@ -137,12 +137,12 @@ const FileUploadStep = ({ onFileParsed }) => {
                 onClick={() => setSelectedSheet(name)}
                 className={`w-full text-left px-4 py-3 rounded-xl border text-sm font-semibold flex items-center justify-between gap-2
                   ${selectedSheet === name
-                    ? 'bg-indigo-100 dark:bg-indigo-900/60 border-indigo-400 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300'
-                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:border-indigo-300'
+                    ? 'bg-accent-50 dark:bg-accent-900/40 border-accent-300 dark:border-accent-700 text-accent-700 dark:text-accent-300'
+                    : 'bg-white dark:bg-surface-800 border-surface-200 dark:border-surface-700 text-surface-700 dark:text-surface-50 hover:border-accent-300'
                   }`}
               >
                 <span>📄 {name}</span>
-                <span className="text-[11px] font-normal text-slate-400 dark:text-slate-500 truncate">
+                <span className="text-[11px] font-normal text-surface-500 dark:text-surface-300 truncate">
                   {headers.length} columns
                   {headers.length > 0
                     ? `: ${headers.slice(0, 4).join(', ')}${headers.length > 4 ? ` +${headers.length - 4} more` : ''}`
@@ -154,7 +154,7 @@ const FileUploadStep = ({ onFileParsed }) => {
           <button
             onClick={handleSheetConfirm}
             disabled={!selectedSheet}
-            className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm disabled:opacity-50"
+            className="w-full py-2.5 rounded-xl bg-accent-600 hover:bg-accent-700 text-white font-bold text-sm disabled:opacity-50"
           >
             Use &quot;{selectedSheet}&quot; →
           </button>
@@ -177,8 +177,8 @@ const FileUploadStep = ({ onFileParsed }) => {
         onClick={() => fileInputRef.current?.click()}
         className={`relative border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer
           ${dragOver
-            ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 scale-[1.01] drag-pulse'
-            : 'border-slate-300 dark:border-slate-600 bg-slate-50/80 dark:bg-slate-800/50 hover:border-indigo-300 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30'
+            ? 'border-accent-400 bg-accent-50 dark:bg-accent-950/50 scale-[1.01] drag-pulse'
+            : 'border-surface-300 dark:border-surface-700 bg-surface-50/80 dark:bg-surface-800/50 hover:border-accent-300 hover:bg-accent-50/50 dark:hover:bg-accent-950/30'
           }`}
       >
         <input
@@ -193,8 +193,8 @@ const FileUploadStep = ({ onFileParsed }) => {
         />
         {loading ? (
           <div className="flex flex-col items-center gap-4">
-            <div className="w-10 h-10 border-2 border-indigo-200 border-t-indigo-500 rounded-full spinner" />
-            <p className="text-sm text-slate-600 dark:text-slate-300 font-medium">
+            <div className="w-10 h-10 border-2 border-accent-200 border-t-accent-500 rounded-full spinner" />
+            <p className="text-sm text-surface-700 dark:text-surface-300 font-medium">
               Parsing your file…
             </p>
           </div>
@@ -202,20 +202,20 @@ const FileUploadStep = ({ onFileParsed }) => {
           <>
             <div
               className={`flex justify-center mb-4 ${dragOver
-                ? 'text-indigo-500'
-                : 'text-slate-400 dark:text-slate-500'
+                ? 'text-accent-500'
+                : 'text-surface-500 dark:text-surface-300'
                 }`}
             >
               <UploadIcon />
             </div>
-            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">
+            <p className="text-sm font-semibold text-surface-700 dark:text-surface-50 mb-1">
               {dragOver
                 ? 'Drop your file here'
                 : 'Drag & drop your product catalog'}
             </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-surface-500 dark:text-surface-300">
               or{' '}
-              <span className="text-indigo-500 underline underline-offset-2 font-semibold">
+              <span className="text-accent-500 underline underline-offset-2 font-semibold">
                 browse files
               </span>
             </p>
@@ -223,7 +223,7 @@ const FileUploadStep = ({ onFileParsed }) => {
               {[
                 ['CSV', 'emerald'],
                 ['XLSX', 'blue'],
-                ['XLS', 'purple'],
+                ['XLS', 'accent'],
               ].map(([ext, c]) => (
                 <span
                   key={ext}
@@ -303,12 +303,12 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
   };
 
   const selClass = (hasValue) =>
-    `w-full max-w-full bg-white/80 dark:bg-slate-800/80 border rounded-xl px-3 py-2.5 text-sm font-medium
-     text-slate-800 dark:text-slate-100
-     focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400/70
+    `w-full max-w-full bg-white/80 dark:bg-surface-800/80 border rounded-xl px-3 py-2.5 text-sm font-medium
+     text-surface-800 dark:text-surface-50
+     focus:outline-none focus:ring-2 focus:ring-accent-500/40 focus:border-accent-400/70
      ${hasValue
       ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/30 dark:bg-emerald-950/20'
-      : 'border-slate-200 dark:border-slate-600/70'
+      : 'border-surface-200 dark:border-surface-700'
     }`;
 
   const dimsMapped = !!mapping.length && !!mapping.width && !!mapping.height;
@@ -331,14 +331,14 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
   return (
     <div className="fade-in space-y-5">
       <div className="flex flex-wrap gap-2 items-center">
-        <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold flex-shrink-0">
+        <span className="text-xs text-surface-500 dark:text-surface-300 font-semibold flex-shrink-0">
           Columns found:
         </span>
         <div className="flex flex-wrap gap-1.5">
           {headers.map((h) => (
             <span
               key={h}
-              className="text-[11px] bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 px-2 py-0.5 rounded-full font-medium truncate max-w-[120px]"
+              className="text-[11px] bg-surface-100 dark:bg-surface-700 text-surface-700 dark:text-surface-300 border border-surface-200 dark:border-surface-700 px-2 py-0.5 rounded-full font-medium truncate max-w-[120px]"
             >
               {h}
             </span>
@@ -358,8 +358,8 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
           >
             <div
               className={`w-11 h-6 rounded-full relative ${combinedDim
-                ? 'bg-indigo-500'
-                : 'bg-slate-300 dark:bg-slate-600'
+                ? 'bg-accent-600'
+                : 'bg-surface-300 dark:bg-surface-700'
                 }`}
             >
               <div
@@ -369,10 +369,10 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
             </div>
           </div>
           <div className="min-w-0">
-            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <span className="text-sm font-semibold text-surface-700 dark:text-surface-50">
               Dimensions combined in one column
             </span>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 break-words">
+            <p className="text-[11px] text-surface-500 dark:text-surface-300 mt-0.5 break-words">
               Enable if your file uses values like &quot;50x40x30&quot; instead of
               separate L/W/H columns
             </p>
@@ -384,7 +384,7 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
               <div className="space-y-1.5 min-w-0">
                 <label
                   htmlFor="dim-column-select"
-                  className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+                  className="block text-xs font-semibold text-surface-500 dark:text-surface-300 uppercase tracking-wider"
                 >
                   Dimension Column
                 </label>
@@ -405,7 +405,7 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
               <div className="space-y-1.5 min-w-0">
                 <label
                   htmlFor="delimiter-input"
-                  className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+                  className="block text-xs font-semibold text-surface-500 dark:text-surface-300 uppercase tracking-wider"
                 >
                   Delimiter
                 </label>
@@ -415,20 +415,20 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
                   value={delimiter}
                   onChange={(e) => setDelimiter(e.target.value)}
                   placeholder="x"
-                  className="w-full max-w-full bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-600/70 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  className="w-full max-w-full bg-white/80 dark:bg-surface-800/80 border border-surface-200 dark:border-surface-700 rounded-xl px-3 py-2.5 text-sm font-medium text-surface-800 dark:text-surface-50 focus:outline-none focus:ring-2 focus:ring-accent-500/40"
                 />
               </div>
             </div>
             {dimPreview && (
-              <div className="p-3 rounded-lg bg-white/80 dark:bg-slate-800/60 border border-amber-200 dark:border-amber-800/50 fade-in overflow-x-auto">
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 font-bold">
+              <div className="p-3 rounded-lg bg-white/80 dark:bg-surface-800/60 border border-amber-200 dark:border-amber-800/50 fade-in overflow-x-auto">
+                <p className="text-[10px] text-surface-500 dark:text-surface-300 uppercase tracking-wider mb-2 font-bold">
                   Parsing Preview (Row 1)
                 </p>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-mono text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded truncate max-w-[160px]">
+                  <span className="text-xs font-mono text-surface-700 dark:text-surface-300 bg-surface-100 dark:bg-surface-700 px-2.5 py-1 rounded truncate max-w-[160px]">
                     &quot;{dimPreview.raw}&quot;
                   </span>
-                  <span className="text-slate-400 text-base">→</span>
+                  <span className="text-surface-400 text-base">→</span>
                   {dimPreview.parsed ? (
                     <span className="text-xs font-mono text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded border border-emerald-200 dark:border-emerald-800 font-semibold whitespace-nowrap">
                       L:{dimPreview.parsed.length} × W:{dimPreview.parsed.width}{' '}
@@ -448,7 +448,7 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
 
       {/* Dimension unit selector */}
       <div className="p-4 rounded-xl bg-sky-50/80 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800/50">
-        <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-3">
+        <p className="text-xs font-bold text-surface-700 dark:text-surface-300 uppercase tracking-wider mb-3">
           📐 Dimension Unit in this file
         </p>
         <div className="grid grid-cols-5 gap-2">
@@ -459,15 +459,15 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
               onClick={() => setImportUnit(u)}
               className={`py-2 px-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide truncate
                 ${importUnit === u
-                  ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-600'
-                  : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600 hover:border-slate-300'
+                  ? 'bg-accent-50 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 border border-accent-300 dark:border-accent-700'
+                  : 'bg-white dark:bg-surface-800 text-surface-500 dark:text-surface-300 border border-surface-200 dark:border-surface-700 hover:border-surface-300'
                 }`}
             >
               {u}
             </button>
           ))}
         </div>
-        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2">
+        <p className="text-[11px] text-surface-500 dark:text-surface-300 mt-2">
           Select the unit your L/W/H values are measured in. Default is cm.
         </p>
       </div>
@@ -478,7 +478,7 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
           <div key={field.key} className="space-y-1.5 min-w-0">
             <label
               htmlFor={`map-${field.key}`}
-              className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+              className="flex items-center gap-1.5 text-xs font-semibold text-surface-500 dark:text-surface-300 uppercase tracking-wider"
             >
               <span>{field.icon}</span>
               <span className="truncate">{field.label}</span>
@@ -507,16 +507,16 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
 
       {/* Weight basis — only shown when a weight column is mapped */}
       {(mapping.netWeight || mapping.grossWeight) && (
-        <div className="p-4 rounded-xl bg-violet-50/80 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-800/50 fade-in space-y-3">
-          <p className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+        <div className="p-4 rounded-xl bg-accent-50/80 dark:bg-accent-950/20 border border-accent-200 dark:border-accent-800/50 fade-in space-y-3">
+          <p className="text-xs font-bold text-surface-700 dark:text-surface-300 uppercase tracking-wider">
             ⚖️ What do your weight columns represent?
           </p>
           {mapping.netWeight && (
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 truncate">
+              <span className="text-xs font-semibold text-surface-700 dark:text-surface-300 truncate">
                 Net Weight (&quot;{mapping.netWeight}&quot;)
               </span>
-              <div className="flex items-center bg-white dark:bg-slate-800 rounded-lg p-0.5 border border-slate-200 dark:border-slate-600">
+              <div className="flex items-center bg-white dark:bg-surface-800 rounded-lg p-0.5 border border-surface-200 dark:border-surface-700">
                 {[
                   ['shipper', 'Per Shipper'],
                   ['unit', 'Per Piece'],
@@ -526,8 +526,8 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
                     type="button"
                     onClick={() => setNetWeightBasis(val)}
                     className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase ${netWeightBasis === val
-                      ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 shadow-sm'
-                      : 'text-slate-500 dark:text-slate-400'
+                      ? 'bg-accent-50 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 shadow-sm'
+                      : 'text-surface-500 dark:text-surface-300'
                       }`}
                   >
                     {label}
@@ -538,10 +538,10 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
           )}
           {mapping.grossWeight && (
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 truncate">
+              <span className="text-xs font-semibold text-surface-700 dark:text-surface-300 truncate">
                 Gross Weight (&quot;{mapping.grossWeight}&quot;)
               </span>
-              <div className="flex items-center bg-white dark:bg-slate-800 rounded-lg p-0.5 border border-slate-200 dark:border-slate-600">
+              <div className="flex items-center bg-white dark:bg-surface-800 rounded-lg p-0.5 border border-surface-200 dark:border-surface-700">
                 {[
                   ['shipper', 'Per Shipper'],
                   ['unit', 'Per Piece'],
@@ -551,8 +551,8 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
                     type="button"
                     onClick={() => setGrossWeightBasis(val)}
                     className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase ${grossWeightBasis === val
-                      ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 shadow-sm'
-                      : 'text-slate-500 dark:text-slate-400'
+                      ? 'bg-accent-50 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 shadow-sm'
+                      : 'text-surface-500 dark:text-surface-300'
                       }`}
                   >
                     {label}
@@ -561,7 +561,7 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
               </div>
             </div>
           )}
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+          <p className="text-[11px] text-surface-500 dark:text-surface-300">
             &quot;Per Shipper&quot; = the value is for a whole carton/box. &quot;Per
             Piece&quot; = the value is for one unit inside the carton.
           </p>
@@ -573,7 +573,7 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
         <button
           id="mapping-back-btn"
           onClick={onBack}
-          className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-600"
+          className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-surface-700 dark:text-surface-300 bg-surface-100 dark:bg-surface-700 border border-surface-200 dark:border-surface-700 hover:bg-surface-200 dark:hover:bg-surface-600"
         >
           <ArrowLeftIcon /> Back
         </button>
@@ -583,8 +583,8 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
           disabled={!canProceed}
           className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold
             ${canProceed
-              ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white hover:from-indigo-500 hover:to-violet-500 hover:shadow-glow'
-              : 'bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-600'
+              ? 'bg-accent-600 text-white hover:bg-accent-700 active:scale-[0.98]'
+              : 'bg-surface-100 dark:bg-surface-700 text-surface-400 cursor-not-allowed border border-surface-200 dark:border-surface-700'
             }`}
         >
           Preview Data <ArrowRightIcon />
@@ -685,8 +685,8 @@ const DataPreviewStep = memo(({
     {
       key: 'all',
       label: `${counts.total} total`,
-      base: 'bg-slate-50 dark:bg-slate-700/50 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400',
-      active: 'ring-2 ring-slate-400 dark:ring-slate-500 scale-[1.04]',
+      base: 'bg-surface-50 dark:bg-surface-700/50 border-surface-200 dark:border-surface-700 text-surface-700 dark:text-surface-300',
+      active: 'ring-2 ring-surface-300 dark:ring-surface-700 scale-[1.04]',
     },
   ];
 
@@ -735,9 +735,9 @@ const DataPreviewStep = memo(({
       </div>
 
       {/* Full scrollable preview table */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div className="bg-gradient-to-r from-slate-50 to-indigo-50/30 dark:from-slate-800 dark:to-indigo-950/20 px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-          <p className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+      <div className="rounded-xl border border-surface-200 dark:border-surface-700 overflow-hidden">
+        <div className="bg-surface-50 dark:bg-surface-800 px-4 py-2.5 border-b border-surface-200 dark:border-surface-700 flex items-center justify-between">
+          <p className="text-xs font-bold text-surface-700 dark:text-surface-300 uppercase tracking-wider">
             {activeFilter === 'all'
               ? `All ${taggedProducts.length} rows`
               : `Showing ${visibleRows.length} ${activeFilter} rows`}
@@ -745,7 +745,7 @@ const DataPreviewStep = memo(({
           {activeFilter !== 'all' && (
             <button
               onClick={() => setActiveFilter('all')}
-              className="text-[10px] text-indigo-500 dark:text-indigo-400 font-bold hover:underline"
+              className="text-[10px] text-accent-500 dark:text-accent-300 font-bold hover:underline"
             >
               Show all
             </button>
@@ -754,12 +754,12 @@ const DataPreviewStep = memo(({
         <div className="overflow-x-auto max-h-64 overflow-y-auto">
           <table className="w-full text-sm min-w-[520px]">
             <thead className="sticky top-0 z-10">
-              <tr className="bg-slate-50/90 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 backdrop-blur-sm">
+              <tr className="bg-surface-50/90 dark:bg-surface-800/90 border-b border-surface-200 dark:border-surface-700 backdrop-blur-sm">
                 {['Name', 'L', 'W', 'H', 'Pack', 'Net Wt/Ship', 'Gross Wt/Ship', 'CBM'].map(
                   (h, i) => (
                     <th
                       key={h}
-                      className={`${i === 0 ? 'text-left px-4' : 'text-right px-3'} py-2.5 text-[11px] font-bold ${i === 7 ? 'text-indigo-500 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'} uppercase tracking-wider`}
+                      className={`${i === 0 ? 'text-left px-4' : 'text-right px-3'} py-2.5 text-[11px] font-bold ${i === 7 ? 'text-accent-600 dark:text-accent-300' : 'text-surface-500 dark:text-surface-300'} uppercase tracking-wider`}
                     >
                       {h}
                     </th>
@@ -774,7 +774,7 @@ const DataPreviewStep = memo(({
                   return (
                     <tr>
                       <td colSpan={8} className="px-4 py-10 text-center">
-                        <div className="flex flex-col items-center gap-2 text-slate-400">
+                        <div className="flex flex-col items-center gap-2 text-surface-400">
                           <WarningIcon />
                           <p className="text-sm font-medium">
                             No rows in this category
@@ -798,13 +798,13 @@ const DataPreviewStep = memo(({
                       return (
                         <tr
                           key={i}
-                          className={`border-t border-slate-100 dark:border-slate-700/60
+                          className={`border-t border-surface-100 dark:border-surface-700/60
                             ${isSkipped
                               ? 'bg-amber-50/40 dark:bg-amber-950/10 opacity-70'
-                              : 'hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20'
+                              : 'hover:bg-accent-50/30 dark:hover:bg-accent-950/20'
                             }`}
                         >
-                          <td className="px-4 py-2.5 font-semibold text-slate-800 dark:text-slate-200 max-w-[180px]">
+                          <td className="px-4 py-2.5 font-semibold text-surface-800 dark:text-surface-50 max-w-[180px]">
                             <div className="flex items-center flex-wrap gap-y-0.5">
                               <span className="truncate" title={p.name}>
                                 {p.name}
@@ -825,8 +825,8 @@ const DataPreviewStep = memo(({
                             <td
                               key={j}
                               className={`px-3 py-2.5 text-right font-mono text-xs ${isSkipped
-                                ? 'text-slate-400 dark:text-slate-600'
-                                : 'text-slate-600 dark:text-slate-400'
+                                ? 'text-surface-400 dark:text-surface-500'
+                                : 'text-surface-700 dark:text-surface-300'
                                 }`}
                             >
                               {v}
@@ -834,8 +834,8 @@ const DataPreviewStep = memo(({
                           ))}
                           <td
                             className={`px-4 py-2.5 text-right font-mono font-bold text-xs ${isSkipped
-                              ? 'text-slate-400 dark:text-slate-600'
-                              : 'text-indigo-600 dark:text-indigo-400'
+                              ? 'text-surface-400 dark:text-surface-500'
+                              : 'text-accent-600 dark:text-accent-300'
                               }`}
                           >
                             {cbm}
@@ -844,12 +844,12 @@ const DataPreviewStep = memo(({
                       );
                     })}
                     {visibleRows.length > previewLimit && (
-                      <tr className="border-t-2 border-indigo-200 dark:border-indigo-800">
+                      <tr className="border-t-2 border-accent-200 dark:border-accent-800">
                         <td
                           colSpan={8}
-                          className="px-4 py-3 text-center bg-indigo-50/60 dark:bg-indigo-950/30"
+                          className="px-4 py-3 text-center bg-accent-50/60 dark:bg-accent-950/30"
                         >
-                          <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                          <span className="text-xs font-bold text-accent-600 dark:text-accent-300">
                             + {visibleRows.length - previewLimit} more rows… (All{' '}
                             {visibleRows.length} will be imported)
                           </span>
@@ -868,7 +868,7 @@ const DataPreviewStep = memo(({
         <button
           id="preview-back-btn"
           onClick={onBack}
-          className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-600"
+          className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-surface-700 dark:text-surface-300 bg-surface-100 dark:bg-surface-700 border border-surface-200 dark:border-surface-700 hover:bg-surface-200 dark:hover:bg-surface-600"
         >
           <ArrowLeftIcon /> Back
         </button>
@@ -878,8 +878,8 @@ const DataPreviewStep = memo(({
           disabled={importableProducts.length === 0 || importing}
           className={`flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold
             ${importableProducts.length > 0 && !importing
-              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 hover:shadow-glow'
-              : 'bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-200 dark:border-slate-600'
+              ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+              : 'bg-surface-100 dark:bg-surface-700 text-surface-400 cursor-not-allowed border border-surface-200 dark:border-surface-700'
             }`}
         >
           {importing ? (
@@ -947,24 +947,24 @@ const ImportWizardModal = memo(({ isOpen, onClose, onImport, existingProducts })
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
       <div
-        className="absolute inset-0 bg-slate-900/50 dark:bg-slate-950/70 backdrop-blur-sm wizard-backdrop"
+        className="absolute inset-0 bg-surface-900/40 dark:bg-surface-900/70 backdrop-blur-sm wizard-backdrop"
         onClick={handleClose}
       />
       <div
-        className="relative w-full sm:max-w-2xl bg-white/90 dark:bg-slate-900/95 rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200/80 dark:border-slate-700/80 overflow-hidden wizard-panel max-h-[95vh] flex flex-col"
+        className="relative w-full sm:max-w-2xl bg-white dark:bg-surface-800 rounded-t-2xl sm:rounded-2xl shadow-pop dark:shadow-pop-dark border border-surface-200 dark:border-surface-700 overflow-hidden wizard-panel max-h-[95vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-slate-50 to-indigo-50/40 dark:from-slate-800/80 dark:to-indigo-950/30 flex-shrink-0">
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-700 flex items-center justify-center text-indigo-600 dark:text-indigo-400 flex-shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-accent-100 dark:bg-accent-900/50 border border-accent-200 dark:border-accent-700 flex items-center justify-center text-accent-600 dark:text-accent-300 flex-shrink-0">
               <FileDocIcon />
             </div>
             <div className="min-w-0">
-              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">
+              <h2 className="text-base font-bold text-surface-800 dark:text-surface-50">
                 Import Product Catalog
               </h2>
               {fileData && (
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                <p className="text-[11px] text-surface-500 dark:text-surface-300 mt-0.5 truncate">
                   📄 {fileData.fileName} · {fileData.rows.length} rows ·{' '}
                   {fileData.headers.length} cols
                 </p>
@@ -975,7 +975,7 @@ const ImportWizardModal = memo(({ isOpen, onClose, onImport, existingProducts })
             id="wizard-close-btn"
             onClick={handleClose}
             title="Close"
-            className="flex-shrink-0 p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+            className="flex-shrink-0 p-2 rounded-lg text-surface-400 hover:text-surface-700 dark:hover:text-surface-50 hover:bg-surface-100 dark:hover:bg-surface-700"
           >
             <CloseIcon />
           </button>
@@ -987,8 +987,8 @@ const ImportWizardModal = memo(({ isOpen, onClose, onImport, existingProducts })
         {/* Transition pending indicator */}
         {isPending && (
           <div className="px-5 sm:px-6 pb-2 flex-shrink-0">
-            <div className="h-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-              <div className="h-full bg-indigo-500 animate-pulse rounded-full w-3/4" />
+            <div className="h-0.5 w-full bg-surface-100 dark:bg-surface-800 rounded-full overflow-hidden">
+              <div className="h-full bg-accent-500 animate-pulse rounded-full w-3/4" />
             </div>
           </div>
         )}

@@ -14,7 +14,7 @@ const ThemeToggle = ({ mode, setTheme }) => {
   return (
     <div
       id="theme-toggle"
-      className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-xl p-1 gap-0.5 border border-slate-200 dark:border-slate-700"
+      className="flex items-center bg-surface-100 dark:bg-surface-800 rounded-lg p-0.5 gap-0.5 border border-surface-200 dark:border-surface-700"
       role="group"
       aria-label="Theme selection"
     >
@@ -25,11 +25,11 @@ const ThemeToggle = ({ mode, setTheme }) => {
           onClick={() => setTheme(o.key)}
           title={o.label}
           aria-pressed={mode === o.key}
-          className={`relative flex items-center justify-center w-8 h-7 rounded-lg text-xs font-medium transition-all duration-300 ease-out
+          className={`relative flex items-center justify-center w-8 h-7 rounded-md text-xs font-medium transition-all duration-200 ease-out
             ${
               mode === o.key
-                ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
-                : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'
+                ? 'bg-white dark:bg-surface-700 text-accent-600 dark:text-accent-300 shadow-panel'
+                : 'text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-200'
             }`}
         >
           {o.icon}
@@ -44,14 +44,14 @@ const Header = ({ mode, setTheme }) => (
   <header className="mb-6 sm:mb-8">
     <div className="flex items-center justify-between gap-4">
       <div className="flex items-center gap-3 min-w-0">
-        <div className="p-2 bg-indigo-100 dark:bg-indigo-900/60 rounded-xl border border-indigo-200 dark:border-indigo-700 flex-shrink-0">
+        <div className="p-2 bg-accent-600 text-white rounded-lg flex-shrink-0 shadow-panel">
           <BoxIcon />
         </div>
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold shimmer-text tracking-tight truncate">
+          <h1 className="text-xl sm:text-2xl lg:text-[1.7rem] font-bold text-surface-900 dark:text-surface-50 tracking-tight truncate">
             CBM Calculator
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-0.5 hidden sm:block">
+          <p className="text-surface-600 dark:text-surface-300 text-xs sm:text-sm mt-0.5 hidden sm:block">
             Shipping volume &amp; weight management dashboard
           </p>
         </div>

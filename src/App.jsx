@@ -88,14 +88,7 @@ function App() {
   const handleCloseSummary  = useCallback(() => setSummaryData(null), []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-indigo-50/60 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/30">
-      {/* ── Ambient orbs ── */}
-      <div aria-hidden="true">
-        <div className="orb w-96 h-96 -top-40 -left-32 bg-indigo-300/20 dark:bg-indigo-700/10" />
-        <div className="orb w-80 h-80 top-1/3 -right-20 bg-purple-300/15 dark:bg-purple-700/10" />
-        <div className="orb w-64 h-64 bottom-0 left-1/3 bg-cyan-300/10 dark:bg-cyan-700/8" />
-      </div>
-
+    <div className="min-h-screen bg-surface-50 dark:bg-surface-900">
       {/* ── Notice / undo toast ── */}
       <NoticeToast notice={notice} onDismiss={dismissNotice} />
 
@@ -162,7 +155,7 @@ function App() {
           />
         </div>
 
-        <footer className="mt-8 text-center text-xs text-slate-400 dark:text-slate-600 pb-6">
+        <footer className="mt-8 text-center text-xs text-surface-600 dark:text-surface-400 pb-6">
           CBM Calculator Dashboard &nbsp;·&nbsp; Volume in m³ &nbsp;·&nbsp;
           Weight in kg
         </footer>
