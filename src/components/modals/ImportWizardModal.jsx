@@ -6,13 +6,13 @@
 import { useState, useMemo, useRef, memo, useTransition, useCallback } from 'react';
 import {
   CheckCircleIcon,
-  CloseIcon,
   FileDocIcon,
   UploadIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
   WarningIcon,
 } from '../icons/Icons';
+import Modal from '../ui/Modal';
 import { parseFile, parseDimensionString, autoMapHeaders, applyMapping } from '../../utils/fileParser';
 import { calcCBM, fmtCBM } from '../../utils/calculations';
 import { compositeKey } from '../../utils/deduplication';
@@ -945,79 +945,55 @@ const ImportWizardModal = memo(({ isOpen, onClose, onImport, existingProducts })
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
-      <div
-        className="absolute inset-0 bg-surface-900/40 dark:bg-surface-900/70 backdrop-blur-sm wizard-backdrop"
-        onClick={handleClose}
-      />
-      <div
-        className="relative w-full sm:max-w-2xl bg-white dark:bg-surface-800 rounded-t-2xl sm:rounded-2xl shadow-pop dark:shadow-pop-dark border border-surface-200 dark:border-surface-700 overflow-hidden wizard-panel max-h-[95vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 flex-shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-accent-100 dark:bg-accent-900/50 border border-accent-200 dark:border-accent-700 flex items-center justify-center text-accent-600 dark:text-accent-300 flex-shrink-0">
-              <FileDocIcon />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-base font-bold text-surface-800 dark:text-surface-50">
-                Import Product Catalog
-              </h2>
-              {fileData && (
-                <p className="text-[11px] text-surface-500 dark:text-surface-300 mt-0.5 truncate">
-                  📄 {fileData.fileName} · {fileData.rows.length} rows ·{' '}
-                  {fileData.headers.length} cols
-                </p>
-              )}
-            </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="Import Product Catalog"
+      subtitle={
+        fileData
+          ? `${fileData.fileName} · ${fileData.rows.length} rows · ${fileData.headers.length} cols`
+          : undefined
+      }
+      icon={<FileDocIcon />}
+      size="xl"
+      maxHeight="max-h-[95vh]"
+      sheetOnMobile
+      stickyTop={
+        <>
+          <div className="px-5 sm:px-6 pt-5">
+            <StepIndicator currentStep={step} />
           </div>
-          <button
-            id="wizard-close-btn"
-            onClick={handleClose}
-            title="Close"
-            className="flex-shrink-0 p-2 rounded-lg text-surface-400 hover:text-surface-700 dark:hover:text-surface-50 hover:bg-surface-100 dark:hover:bg-surface-700"
-          >
-            <CloseIcon />
-          </button>
-        </div>
-        <div className="px-5 sm:px-6 pt-5 flex-shrink-0">
-          <StepIndicator currentStep={step} />
-        </div>
-
-        {/* Transition pending indicator */}
-        {isPending && (
-          <div className="px-5 sm:px-6 pb-2 flex-shrink-0">
-            <div className="h-0.5 w-full bg-surface-100 dark:bg-surface-800 rounded-full overflow-hidden">
-              <div className="h-full bg-accent-500 animate-pulse rounded-full w-3/4" />
+          {/* Transition pending indicator */}
+          {isPending && (
+            <div className="px-5 sm:px-6 pb-2">
+              <div className="h-0.5 w-full bg-surface-100 dark:bg-surface-800 rounded-full overflow-hidden">
+                <div className="h-full bg-accent-500 animate-pulse rounded-full w-3/4" />
+              </div>
             </div>
-          </div>
-        )}
-
-        <div className="px-5 sm:px-6 pb-6 overflow-y-auto flex-1">
-          {step === 1 && (
-            <FileUploadStep onFileParsed={handleFileParsed} />
           )}
-          {step === 2 && fileData && (
-            <ColumnMappingStep
-              headers={fileData.headers}
-              rows={fileData.rows}
-              onMappingComplete={handleMappingComplete}
-              onBack={handleBackToStep1}
-            />
-          )}
-          {step === 3 && fileData && mappingConfig && (
-            <DataPreviewStep
-              rows={fileData.rows}
-              mapping={mappingConfig.mapping}
-              dimConfig={mappingConfig.dimConfig}
-              existingProducts={existingProducts}
-              onImport={handleImport}
-              onBack={handleBackToStep2}
-            />
-          )}
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      {step === 1 && <FileUploadStep onFileParsed={handleFileParsed} />}
+      {step === 2 && fileData && (
+        <ColumnMappingStep
+          headers={fileData.headers}
+          rows={fileData.rows}
+          onMappingComplete={handleMappingComplete}
+          onBack={handleBackToStep1}
+        />
+      )}
+      {step === 3 && fileData && mappingConfig && (
+        <DataPreviewStep
+          rows={fileData.rows}
+          mapping={mappingConfig.mapping}
+          dimConfig={mappingConfig.dimConfig}
+          existingProducts={existingProducts}
+          onImport={handleImport}
+          onBack={handleBackToStep2}
+        />
+      )}
+    </Modal>
   );
 });
 

@@ -9,7 +9,8 @@
  */
 import { useState, useEffect, memo, useCallback } from 'react';
 import FormInput from '../ui/FormInput';
-import { CloseIcon, CheckCircleIcon } from '../icons/Icons';
+import Modal from '../ui/Modal';
+import { CheckCircleIcon, FileDocIcon } from '../icons/Icons';
 import { IMPORT_COLORS, IMPORT_ICONS } from '../../utils/fileParser';
 import { calcCBM } from '../../utils/calculations';
 
@@ -99,148 +100,132 @@ const ManualAddModal = memo(({ isOpen, onClose, onSave, editingProduct }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-surface-900/40 dark:bg-surface-900/70 backdrop-blur-sm wizard-backdrop"
-        onClick={onClose}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={editingProduct ? 'Edit Product' : 'Add Product Manually'}
+      icon={<FileDocIcon />}
+      size="sm"
+      bodyClassName="p-5 space-y-3"
+    >
+      <FormInput
+        id="manual-name"
+        label="Product Name"
+        type="text"
+        value={f.name}
+        onChange={(v) => up('name', v)}
       />
-      <div
-        className="relative w-full max-w-md bg-white dark:bg-surface-800 rounded-2xl shadow-pop dark:shadow-pop-dark border border-surface-200 dark:border-surface-700 wizard-panel"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-200 dark:border-surface-700">
-          <h2 className="text-base font-bold text-surface-800 dark:text-surface-50">
-            {editingProduct ? '✏️ Edit Product' : '➕ Add Product Manually'}
-          </h2>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="p-2 rounded-lg text-surface-400 hover:text-surface-700 dark:hover:text-surface-50 hover:bg-surface-100 dark:hover:bg-surface-700"
-          >
-            <CloseIcon />
-          </button>
-        </div>
-        <div className="p-5 space-y-3">
-          <FormInput
-            id="manual-name"
-            label="Product Name"
-            type="text"
-            value={f.name}
-            onChange={(v) => up('name', v)}
-          />
 
-          {/* Entry mode toggle */}
-          <div className="flex gap-1 p-1 rounded-full bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700">
-            {[
-              ['dims', 'Dimensions (L×W×H)'],
-              ['cbm', 'Pre-calculated CBM'],
-            ].map(([mode, label]) => (
+      {/* Entry mode toggle */}
+      <div className="flex gap-1 p-1 rounded-full bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700">
+        {[
+          ['dims', 'Dimensions (L×W×H)'],
+          ['cbm', 'Pre-calculated CBM'],
+        ].map(([mode, label]) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => setEntryMode(mode)}
+            className={`flex-1 py-1.5 px-2 text-[10px] font-bold uppercase tracking-wide rounded-full
+              ${entryMode === mode
+                ? 'bg-accent-600 text-white shadow-md'
+                : 'text-surface-500 dark:text-surface-300 hover:text-surface-700 dark:hover:text-surface-50'
+              }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {entryMode === 'dims' ? (
+        <>
+          <div className="grid grid-cols-3 gap-2">
+            <FormInput
+              id="manual-l"
+              label="Length"
+              value={f.length}
+              onChange={(v) => up('length', v)}
+              suffix={f.unit.slice(0, 2)}
+            />
+            <FormInput
+              id="manual-w"
+              label="Width"
+              value={f.width}
+              onChange={(v) => up('width', v)}
+              suffix={f.unit.slice(0, 2)}
+            />
+            <FormInput
+              id="manual-h"
+              label="Height"
+              value={f.height}
+              onChange={(v) => up('height', v)}
+              suffix={f.unit.slice(0, 2)}
+            />
+          </div>
+          <div className="grid grid-cols-5 gap-1.5">
+            {['mm', 'cm', 'inches', 'feet', 'meters'].map((u) => (
               <button
-                key={mode}
+                key={u}
                 type="button"
-                onClick={() => setEntryMode(mode)}
-                className={`flex-1 py-1.5 px-2 text-[10px] font-bold uppercase tracking-wide rounded-full
-                  ${entryMode === mode
-                    ? 'bg-accent-600 text-white shadow-md'
-                    : 'text-surface-500 dark:text-surface-300 hover:text-surface-700 dark:hover:text-surface-50'
-                  }`}
+                onClick={() => up('unit', u)}
+                className={`py-1.5 rounded-lg text-[10px] font-bold uppercase ${
+                  f.unit === u
+                    ? 'bg-accent-50 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 border border-accent-300 dark:border-accent-700'
+                    : 'bg-surface-50 dark:bg-surface-800 text-surface-400 border border-surface-200 dark:border-surface-700'
+                }`}
               >
-                {label}
+                {u}
               </button>
             ))}
           </div>
+        </>
+      ) : (
+        <FormInput
+          id="manual-cbm"
+          label="CBM per Shipper"
+          value={f.presetCBM}
+          onChange={(v) => up('presetCBM', v)}
+          step="any"
+          suffix="m³"
+        />
+      )}
 
-          {entryMode === 'dims' ? (
-            <>
-              <div className="grid grid-cols-3 gap-2">
-                <FormInput
-                  id="manual-l"
-                  label="Length"
-                  value={f.length}
-                  onChange={(v) => up('length', v)}
-                  suffix={f.unit.slice(0, 2)}
-                />
-                <FormInput
-                  id="manual-w"
-                  label="Width"
-                  value={f.width}
-                  onChange={(v) => up('width', v)}
-                  suffix={f.unit.slice(0, 2)}
-                />
-                <FormInput
-                  id="manual-h"
-                  label="Height"
-                  value={f.height}
-                  onChange={(v) => up('height', v)}
-                  suffix={f.unit.slice(0, 2)}
-                />
-              </div>
-              <div className="grid grid-cols-5 gap-1.5">
-                {['mm', 'cm', 'inches', 'feet', 'meters'].map((u) => (
-                  <button
-                    key={u}
-                    type="button"
-                    onClick={() => up('unit', u)}
-                    className={`py-1.5 rounded-lg text-[10px] font-bold uppercase ${
-                      f.unit === u
-                        ? 'bg-accent-50 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 border border-accent-300 dark:border-accent-700'
-                        : 'bg-surface-50 dark:bg-surface-800 text-surface-400 border border-surface-200 dark:border-surface-700'
-                    }`}
-                  >
-                    {u}
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : (
-            <FormInput
-              id="manual-cbm"
-              label="CBM per Shipper"
-              value={f.presetCBM}
-              onChange={(v) => up('presetCBM', v)}
-              step="any"
-              suffix="m³"
-            />
-          )}
-
-          <div className="grid grid-cols-3 gap-2">
-            <FormInput
-              id="manual-pack"
-              label="Pack Size"
-              value={f.packSize}
-              onChange={(v) => up('packSize', v)}
-              suffix="pcs"
-            />
-            <FormInput
-              id="manual-nw"
-              label="Net Wt/Shipper"
-              value={f.netWeight}
-              onChange={(v) => up('netWeight', v)}
-              suffix="kg"
-            />
-            <FormInput
-              id="manual-gw"
-              label="Gross Wt/Shipper"
-              value={f.grossWeight}
-              onChange={(v) => up('grossWeight', v)}
-              suffix="kg"
-            />
-          </div>
-          <button
-            onClick={handleSave}
-            disabled={!canSave}
-            className={`w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 mt-2
-              ${
-                canSave
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                  : 'bg-surface-100 dark:bg-surface-700 text-surface-400 cursor-not-allowed border border-surface-200 dark:border-surface-700'
-              }`}
-          >
-            <CheckCircleIcon /> {editingProduct ? 'Save Changes' : 'Save to Directory'}
-          </button>
-        </div>
+      <div className="grid grid-cols-3 gap-2">
+        <FormInput
+          id="manual-pack"
+          label="Pack Size"
+          value={f.packSize}
+          onChange={(v) => up('packSize', v)}
+          suffix="pcs"
+        />
+        <FormInput
+          id="manual-nw"
+          label="Net Wt/Shipper"
+          value={f.netWeight}
+          onChange={(v) => up('netWeight', v)}
+          suffix="kg"
+        />
+        <FormInput
+          id="manual-gw"
+          label="Gross Wt/Shipper"
+          value={f.grossWeight}
+          onChange={(v) => up('grossWeight', v)}
+          suffix="kg"
+        />
       </div>
-    </div>
+      <button
+        onClick={handleSave}
+        disabled={!canSave}
+        className={`w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 mt-2
+          ${
+            canSave
+              ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+              : 'bg-surface-100 dark:bg-surface-700 text-surface-400 cursor-not-allowed border border-surface-200 dark:border-surface-700'
+          }`}
+      >
+        <CheckCircleIcon /> {editingProduct ? 'Save Changes' : 'Save to Directory'}
+      </button>
+    </Modal>
   );
 });
 

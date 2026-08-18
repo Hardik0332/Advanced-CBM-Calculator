@@ -15,41 +15,77 @@ import {
   fmtCBM,
   containersNeeded,
 } from './calculations';
+import { safeNum, safeNonNegative, clampInt, trimFloat } from './numbers';
 
 /** Round only to kill float noise (12 significant-ish decimals), not precision. */
-const raw = (v) => {
-  const n = Number(v) || 0;
-  return Math.round(n * 1e9) / 1e9;
-};
+const raw = (v) => trimFloat(v, 9);
+
+/**
+ * Fixed-decimal formatter that cannot throw.
+ *
+ * Every `item.someWeight.toFixed(n)` in this file was a latent crash: a legacy
+ * or hand-edited record with a missing numeric field took the whole app down
+ * with "toFixed is not a function". Schema normalisation now prevents that on
+ * load, but exports also run on data handed straight in, so they defend too.
+ */
+const fx = (v, decimals = 2) => safeNum(v, 0).toFixed(decimals);
 
 const itemTotalPcs = (item) =>
-  item.totalPcs || (item.packSize || 1) * (item.quantity || 1);
+  clampInt(item?.totalPcs, 0) ||
+  clampInt(item?.packSize, 1) * clampInt(item?.quantity, 1);
 
-const exportFileName = (base, poNumber, ext) =>
-  `${base}${poNumber ? '_' + poNumber.replace(/\s+/g, '_') : ''}_${new Date()
-    .toISOString()
-    .slice(0, 10)}.${ext}`;
+/** Characters Windows forbids in filenames. */
+const UNSAFE_FILENAME = /[/\\:*?"<>|]/g;
+
+/** Local ISO date (YYYY-MM-DD). `toISOString()` is UTC and gives the wrong day. */
+const localDateStamp = (d = new Date()) => {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+/**
+ * Build a download filename that is safe on every OS.
+ * A PO like "AB/123" previously produced "shipment_AB/123_….pdf", which browsers
+ * mangle or reject on Windows.
+ *
+ * Exported for tests — the filename and date rules are easy to regress silently.
+ */
+export const exportFileName = (base, poNumber, ext) => {
+  const ref = String(poNumber || '')
+    .replace(UNSAFE_FILENAME, '-')
+    .replace(/\s+/g, '_')
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+    .slice(0, 60);
+  return `${base}${ref ? `_${ref}` : ''}_${localDateStamp()}.${ext}`;
+};
 
 /** Shared row-builder so Excel and CSV always agree. */
-const buildRows = (shipment, totals) => {
-  const rows = shipment.map((item, i) => ({
-    '#': i + 1,
-    'Item Name': item.name,
-    Packing: item.packingString || '',
-    L: raw(item.length),
-    W: raw(item.width),
-    H: raw(item.height),
-    Unit: item.unit,
-    'Pack Size': raw(item.packSize),
-    'Qty (Shippers)': raw(item.quantity),
-    'Total Pcs': raw(itemTotalPcs(item)),
-    'Net Wt/Unit (kg)': raw(item.netWeightPerUnit),
-    'Gross Wt/Shipper (kg)': raw(item.grossWeightPerShipper),
-    'CBM/Shipper': raw(item.cbmPerShipper),
-    'Total CBM': raw(item.cbmPerShipper * item.quantity),
-    'Total Net Wt (kg)': raw(item.netWeightPerUnit * itemTotalPcs(item)),
-    'Total Gross Wt (kg)': raw(item.grossWeightPerShipper * item.quantity),
-  }));
+export const buildRows = (shipment, totals) => {
+  const rows = (shipment || []).map((item, i) => {
+    const pcs = itemTotalPcs(item);
+    const qty = clampInt(item?.quantity, 1);
+    const cbmPerShipper = safeNonNegative(item?.cbmPerShipper);
+    const netPerUnit = safeNonNegative(item?.netWeightPerUnit);
+    const grossPerShipper = safeNonNegative(item?.grossWeightPerShipper);
+    return {
+      '#': i + 1,
+      'Item Name': String(item?.name ?? ''),
+      Packing: String(item?.packingString ?? ''),
+      L: raw(item?.length),
+      W: raw(item?.width),
+      H: raw(item?.height),
+      Unit: String(item?.unit ?? ''),
+      'Pack Size': clampInt(item?.packSize, 1),
+      'Qty (Shippers)': qty,
+      'Total Pcs': pcs,
+      'Net Wt/Unit (kg)': raw(netPerUnit),
+      'Gross Wt/Shipper (kg)': raw(grossPerShipper),
+      'CBM/Shipper': raw(cbmPerShipper),
+      'Total CBM': raw(cbmPerShipper * qty),
+      'Total Net Wt (kg)': raw(netPerUnit * pcs),
+      'Total Gross Wt (kg)': raw(grossPerShipper * qty),
+    };
+  });
 
   rows.push({
     '#': '',
@@ -60,17 +96,51 @@ const buildRows = (shipment, totals) => {
     H: '',
     Unit: '',
     'Pack Size': '',
-    'Qty (Shippers)': raw(totals.shippers),
-    'Total Pcs': raw(totals.totalPcs),
+    'Qty (Shippers)': raw(totals?.shippers),
+    'Total Pcs': raw(totals?.totalPcs),
     'Net Wt/Unit (kg)': '',
     'Gross Wt/Shipper (kg)': '',
     'CBM/Shipper': '',
-    'Total CBM': raw(totals.cbm),
-    'Total Net Wt (kg)': raw(totals.netWeight),
-    'Total Gross Wt (kg)': raw(totals.grossWeight),
+    'Total CBM': raw(totals?.cbm),
+    'Total Net Wt (kg)': raw(totals?.netWeight),
+    'Total Gross Wt (kg)': raw(totals?.grossWeight),
   });
 
   return rows;
+};
+
+/**
+ * Freight / container summary as label-value pairs.
+ *
+ * Shared by Excel and CSV so the two exports finally agree — `exportCSV` used to
+ * omit this block entirely despite the comment claiming column parity.
+ */
+export const buildSummaryPairs = (totals, containerType, freightMode) => {
+  const mode = FREIGHT_MODES[freightMode];
+  const cont = CONTAINERS[containerType];
+  const cbm = safeNonNegative(totals?.cbm);
+  const grossWeight = safeNonNegative(totals?.grossWeight);
+  const volumetric = cbm * (mode?.volumetricFactor || 0);
+  const chargeable = Math.max(grossWeight, volumetric);
+
+  const pairs = [
+    ['Freight Mode', mode?.label || String(freightMode ?? '')],
+    ['Volumetric Wt (kg)', raw(volumetric)],
+    ['Chargeable Wt (kg)', raw(chargeable)],
+  ];
+
+  if (cont) {
+    const plan = containersNeeded({ cbm, grossWeight }, containerType);
+    pairs.push(
+      ['Container', cont.label],
+      ['Volume Utilisation (%)', raw((cbm / cont.cbm) * 100)],
+      ['Payload Utilisation (%)', raw((grossWeight / cont.maxPayloadKg) * 100)],
+      ['Containers Required', plan.count],
+      ['Limited By', plan.limitedBy]
+    );
+  }
+
+  return pairs;
 };
 
 /**
@@ -83,31 +153,24 @@ const buildRows = (shipment, totals) => {
  */
 export const exportExcel = (shipment, totals, poNumber, containerType, freightMode) => {
   const rows = buildRows(shipment, totals);
-
-  // Freight/container summary appended below the table
-  const mode = FREIGHT_MODES[freightMode];
-  const cont = CONTAINERS[containerType];
-  const volumetric = totals.cbm * (mode?.volumetricFactor || 0);
-  const chargeable = Math.max(totals.grossWeight, volumetric);
-  rows.push({});
-  rows.push({ '#': '', 'Item Name': `Freight Mode: ${mode?.label || freightMode}` });
-  rows.push({ '#': '', 'Item Name': 'Volumetric Wt (kg)', L: raw(volumetric) });
-  rows.push({ '#': '', 'Item Name': 'Chargeable Wt (kg)', L: raw(chargeable) });
-  if (cont) {
-    rows.push({
-      '#': '',
-      'Item Name': `Container: ${cont.label}`,
-      L: `${((totals.cbm / cont.cbm) * 100).toFixed(2)}% volume`,
-      W: `${((totals.grossWeight / cont.maxPayloadKg) * 100).toFixed(2)}% payload`,
-    });
-  }
-
   const ws = XLSX.utils.json_to_sheet(rows);
+
   ws['!cols'] = [
     { wch: 4 }, { wch: 28 }, { wch: 14 }, { wch: 8 }, { wch: 8 }, { wch: 8 },
     { wch: 6 }, { wch: 9 }, { wch: 13 }, { wch: 10 }, { wch: 15 }, { wch: 19 },
     { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 18 },
   ];
+
+  /* Summary block appended below the table.
+     Previously these rows were pushed through `json_to_sheet` with the value in
+     the `L` key, so "Volumetric Wt" landed under the Length column — a number in
+     a dimension column, which is actively misleading. Writing the pairs directly
+     into column A/B after the table puts each label beside its own value. */
+  const pairs = buildSummaryPairs(totals, containerType, freightMode);
+  const startRow = rows.length + 2; // one blank row after the table
+  XLSX.utils.sheet_add_aoa(ws, [['SHIPMENT SUMMARY']], { origin: `A${startRow}` });
+  XLSX.utils.sheet_add_aoa(ws, pairs, { origin: `A${startRow + 1}` });
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Shipment');
   XLSX.writeFile(wb, exportFileName('shipment', poNumber, 'xlsx'));
@@ -115,10 +178,23 @@ export const exportExcel = (shipment, totals, poNumber, containerType, freightMo
 
 /**
  * Export shipment data to a CSV file (same columns as the Excel export).
+ *
+ * Now genuinely at parity: the freight/container summary is appended as a second
+ * block, and the file is prefixed with a UTF-8 BOM so Excel renders non-ASCII
+ * product names correctly instead of as mojibake. CRLF line endings match what
+ * Excel expects.
  */
-export const exportCSV = (shipment, totals, poNumber) => {
-  const csv = Papa.unparse(buildRows(shipment, totals));
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+export const exportCSV = (shipment, totals, poNumber, containerType, freightMode) => {
+  const table = Papa.unparse(buildRows(shipment, totals), { newline: '\r\n' });
+  const summary = Papa.unparse(
+    [['SHIPMENT SUMMARY'], ...buildSummaryPairs(totals, containerType, freightMode)],
+    { newline: '\r\n' }
+  );
+  const csv = `${table}\r\n\r\n${summary}`;
+
+  // \uFEFF is the UTF-8 BOM; without it Excel assumes the system codepage
+  // and renders non-ASCII product names as mojibake.
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -169,21 +245,31 @@ export const exportPDF = (
   headerY += 5;
 
   // Table
-  const tableData = shipment.map((item, i) => [
-    i + 1,
-    item.name + (item.packingString ? `\n(${item.packingString})` : ''),
-    item.length || item.width || item.height
-      ? `${item.length}×${item.width}×${item.height} ${item.unit}`
-      : 'pre-calc',
-    item.packSize,
-    item.quantity,
-    itemTotalPcs(item),
-    item.netWeightPerUnit.toFixed(3),
-    item.grossWeightPerShipper.toFixed(2),
-    fmtCBM(item.cbmPerShipper),
-    fmtCBM(item.cbmPerShipper * item.quantity),
-    (item.grossWeightPerShipper * item.quantity).toFixed(2),
-  ]);
+  const tableData = (shipment || []).map((item, i) => {
+    const qty = clampInt(item?.quantity, 1);
+    const cbmPerShipper = safeNonNegative(item?.cbmPerShipper);
+    const grossPerShipper = safeNonNegative(item?.grossWeightPerShipper);
+    const hasDims =
+      safeNonNegative(item?.length) ||
+      safeNonNegative(item?.width) ||
+      safeNonNegative(item?.height);
+    return [
+      i + 1,
+      String(item?.name ?? '') + (item?.packingString ? `\n(${item.packingString})` : ''),
+      hasDims
+        ? `${raw(item?.length)}×${raw(item?.width)}×${raw(item?.height)} ${item?.unit ?? ''}`
+        : 'pre-calc',
+      clampInt(item?.packSize, 1),
+      qty,
+      itemTotalPcs(item),
+      // fx() instead of .toFixed() — a record missing these fields used to throw.
+      fx(item?.netWeightPerUnit, 3),
+      fx(grossPerShipper, 2),
+      fmtCBM(cbmPerShipper),
+      fmtCBM(cbmPerShipper * qty),
+      fx(grossPerShipper * qty, 2),
+    ];
+  });
 
   // jspdf-autotable v5: functional API — doc.autoTable() no longer exists.
   autoTable(doc, {
@@ -220,16 +306,32 @@ export const exportPDF = (
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(0);
 
-  const volumetric = totals.cbm * (mode?.volumetricFactor || 0);
-  const chargeable = Math.max(totals.grossWeight, volumetric);
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginBottom = 14;
+  /* When the table ends near the bottom of a page these lines previously rendered
+     off the paper entirely. Start a new page instead of drawing into the void. */
+  const ensureSpace = (needed) => {
+    if (finalY + needed > pageHeight - marginBottom) {
+      doc.addPage();
+      finalY = 20;
+    }
+  };
+
+  const cbm = safeNonNegative(totals?.cbm);
+  const grossWeight = safeNonNegative(totals?.grossWeight);
+  const volumetric = cbm * (mode?.volumetricFactor || 0);
+  const chargeable = Math.max(grossWeight, volumetric);
+
+  ensureSpace(8);
   doc.text(
-    `Total CBM: ${fmtCBM(totals.cbm)} m³  |  Net Wt: ${totals.netWeight.toFixed(2)} kg  |  Gross Wt: ${totals.grossWeight.toFixed(2)} kg  |  Shippers: ${totals.shippers}  |  Total Pcs: ${totals.totalPcs.toLocaleString()}`,
+    `Total CBM: ${fmtCBM(cbm)} m³  |  Net Wt: ${fx(totals?.netWeight)} kg  |  Gross Wt: ${fx(grossWeight)} kg  |  Shippers: ${clampInt(totals?.shippers, 0)}  |  Total Pcs: ${clampInt(totals?.totalPcs, 0).toLocaleString()}`,
     14,
     finalY
   );
   finalY += 6;
+  ensureSpace(8);
   doc.text(
-    `Volumetric Wt: ${volumetric.toFixed(2)} kg  |  Chargeable Wt: ${chargeable.toFixed(2)} kg  (${mode?.label || freightMode})`,
+    `Volumetric Wt: ${fx(volumetric)} kg  |  Chargeable Wt: ${fx(chargeable)} kg  (${mode?.label || freightMode})`,
     14,
     finalY
   );
@@ -237,10 +339,11 @@ export const exportPDF = (
   const cont = CONTAINERS[containerType];
   if (cont) {
     finalY += 6;
-    const volPct = (totals.cbm / cont.cbm) * 100;
-    const wtPct = (totals.grossWeight / cont.maxPayloadKg) * 100;
-    let line = `Container: ${cont.label}  |  Volume: ${volPct.toFixed(2)}%  |  Payload: ${wtPct.toFixed(2)}% of ${(cont.maxPayloadKg / 1000).toFixed(1)} t`;
-    const plan = containersNeeded(totals, containerType);
+    ensureSpace(8);
+    const volPct = (cbm / cont.cbm) * 100;
+    const wtPct = (grossWeight / cont.maxPayloadKg) * 100;
+    let line = `Container: ${cont.label}  |  Volume: ${fx(volPct)}%  |  Payload: ${fx(wtPct)}% of ${fx(cont.maxPayloadKg / 1000, 1)} t`;
+    const plan = containersNeeded({ cbm, grossWeight }, containerType);
     if (plan.count > 1) {
       line += `  |  REQUIRES ${plan.count} CONTAINERS (limited by ${plan.limitedBy})`;
       doc.setTextColor(220, 38, 38);

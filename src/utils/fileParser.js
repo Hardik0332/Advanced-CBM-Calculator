@@ -340,7 +340,12 @@ export const buildProductFromRow = (row, mapping, dimConfig, slotIndex) => {
     length,
     width,
     height,
-    packingString: String(row[mapping.packingString] || row[mapping.packSize] || '').trim(),
+    /* Only ever the real packing description. It used to fall back to the pack-size
+       column, so `packingString` came out as the bare number "10" — which forced
+       ActiveShipment to strip-and-compare it against packSize just to avoid
+       rendering "10 pcs/shipper (10)". Empty is the honest value when the file
+       has no packing description. */
+    packingString: String(row[mapping.packingString] ?? '').trim(),
     packSize,
     netWeightPerUnit,
     grossWeightPerShipper,

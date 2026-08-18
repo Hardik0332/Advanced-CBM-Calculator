@@ -12,7 +12,8 @@ import {
   ExcelIcon,
   PdfIcon,
 } from '../icons/Icons';
-import { CONTAINERS, FREIGHT_MODES, fmtCBM } from '../../utils/calculations';
+import { CONTAINERS, FREIGHT_MODES, fmtCBM, fmtCBMPrecise } from '../../utils/calculations';
+import { safeNum } from '../../utils/numbers';
 import { exportExcel, exportCSV, exportPDF } from '../../utils/exporting';
 
 const colorStyles = {
@@ -167,7 +168,7 @@ const ActiveShipment = memo(({
                 </button>
                 <button
                   id="export-csv-btn"
-                  onClick={() => exportCSV(shipment, totals, poNumber)}
+                  onClick={() => exportCSV(shipment, totals, poNumber, containerType, freightMode)}
                   title="Export CSV"
                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 hover:bg-teal-100 dark:hover:bg-teal-900/30"
                 >
@@ -249,17 +250,9 @@ const ActiveShipment = memo(({
                         <p className="text-xs text-surface-500 dark:text-surface-300 mt-0.5 truncate">
                           {item.length || item.width || item.height
                             ? `${item.length}×${item.width}×${item.height} ${item.unit}`
-                            : `pre-calc ${item.cbmPerShipper < 0.001
-                              ? item.cbmPerShipper.toFixed(5)
-                              : item.cbmPerShipper.toFixed(3)} m³`
-                          }{' '}· {item.packSize} pcs/shipper{(() => {
-                            const cleanPacking = item.packingString
-                              ? item.packingString.toLowerCase().replace(/\s*pcs\s*/g, '').trim()
-                              : '';
-                            return item.packingString && cleanPacking !== String(item.packSize)
-                              ? ` (${item.packingString})`
-                              : '';
-                          })()}
+                            : `pre-calc ${fmtCBM(item.cbmPerShipper)} m³`
+                          }{' '}· {item.packSize} pcs/shipper
+                          {item.packingString ? ` (${item.packingString})` : ''}
                         </p>
                         {hasPartialBox && (
                           <p className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 mt-0.5">
@@ -308,22 +301,18 @@ const ActiveShipment = memo(({
                           <div className="flex-shrink-0">
                             <p className="text-[10px] text-surface-500 dark:text-surface-300 uppercase tracking-wider mb-0.5 whitespace-nowrap">CBM/ship</p>
                             <p className="text-xs font-mono font-bold text-accent-600 dark:text-accent-300">
-                              {item.cbmPerShipper < 0.001
-                                ? item.cbmPerShipper.toFixed(5)
-                                : item.cbmPerShipper.toFixed(3)}
+                              {fmtCBMPrecise(item.cbmPerShipper)}
                             </p>
                           </div>
                           <div className="flex-shrink-0">
                             <p className="text-[10px] text-surface-500 dark:text-surface-300 uppercase tracking-wider mb-0.5 whitespace-nowrap">Total CBM</p>
                             <p className="text-xs font-mono font-bold text-accent-600 dark:text-accent-300">
-                              {totalCBM < 0.001
-                                ? totalCBM.toFixed(5)
-                                : totalCBM.toFixed(3)}
+                              {fmtCBMPrecise(totalCBM)}
                             </p>
                           </div>
                           <div className="flex-shrink-0">
                             <p className="text-[10px] text-surface-500 dark:text-surface-300 uppercase tracking-wider mb-0.5 whitespace-nowrap">Gross Wt (kg)</p>
-                            <p className="text-xs font-mono font-bold text-amber-600 dark:text-amber-400">{totalWeight.toFixed(2)}</p>
+                            <p className="text-xs font-mono font-bold text-amber-600 dark:text-amber-400">{safeNum(totalWeight).toFixed(2)}</p>
                           </div>
                           {item.packSize > 1 && (
                             <div className="flex-shrink-0">

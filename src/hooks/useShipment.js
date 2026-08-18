@@ -15,6 +15,24 @@ import {
 } from '../utils/calculations';
 import { mergeProducts } from '../utils/deduplication';
 import { IMPORT_COLORS, IMPORT_ICONS } from '../utils/fileParser';
+import { clampInt, safeNonNegative } from '../utils/numbers';
+import {
+  migrateProducts,
+  migrateShipment,
+  normalizeMeta,
+  wrap,
+} from '../utils/schema';
+import {
+  STORAGE_KEYS,
+  readJSON,
+  writeJSON,
+  putRawData,
+  pruneRawData,
+} from '../utils/storage';
+
+/** Shipment quantities above this are always a typo, and unbounded values
+    produce Infinity totals that poison every downstream calculation. */
+const MAX_QTY = 1_000_000;
 
 const EMPTY_FORM = {
   unit: 'cm',
@@ -33,45 +51,29 @@ const EMPTY_FORM = {
 const genItemId = () =>
   `item-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
+/**
+ * Load + normalise the persisted product directory.
+ * Everything goes through the schema layer, so a corrupt or legacy payload
+ * degrades to an empty list instead of crashing the first render.
+ */
+const loadProducts = () => migrateProducts(readJSON(STORAGE_KEYS.products)).items;
+
 /** Load + migrate persisted shipment items (older versions lack totalPcs). */
-const loadShipment = () => {
-  try {
-    const s = localStorage.getItem('cbm-shipment');
-    const arr = s ? JSON.parse(s) : [];
-    return arr.map((i) => ({
-      ...i,
-      totalPcs: i.totalPcs ?? (i.packSize || 1) * (i.quantity || 1),
-    }));
-  } catch {
-    return [];
-  }
-};
+const loadShipment = () => migrateShipment(readJSON(STORAGE_KEYS.shipment)).items;
 
 /** Load persisted shipment metadata (PO number, container, freight mode). */
 const loadMeta = () => {
-  try {
-    const s = localStorage.getItem('cbm-shipment-meta');
-    const m = s ? JSON.parse(s) : {};
-    return {
-      poNumber: typeof m.poNumber === 'string' ? m.poNumber : '',
-      containerType: CONTAINERS[m.containerType] ? m.containerType : '40hc',
-      freightMode: normalizeFreightMode(m.freightMode),
-    };
-  } catch {
-    return { poNumber: '', containerType: '40hc', freightMode: 'ocean_fcl' };
-  }
+  const m = normalizeMeta(readJSON(STORAGE_KEYS.meta));
+  return {
+    poNumber: m.poNumber || '',
+    containerType: CONTAINERS[m.containerType] ? m.containerType : '40hc',
+    freightMode: normalizeFreightMode(m.freightMode),
+  };
 };
 
 export function useShipment() {
   /* ── Product directory — persisted in localStorage ── */
-  const [products, setProducts] = useState(() => {
-    try {
-      const s = localStorage.getItem('cbm-products');
-      return s ? JSON.parse(s) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [products, setProducts] = useState(loadProducts);
 
   /* ── Notice / toast system (import results, undo, storage errors) ── */
   const [notice, setNotice] = useState(null);
@@ -110,19 +112,21 @@ export function useShipment() {
     // Debounce: avoid writing on every keystroke — wait 500 ms of no changes
     clearTimeout(productsTimerRef.current);
     productsTimerRef.current = setTimeout(() => {
-      try {
-        // Strip rawData before persisting — it holds all original CSV/Excel columns and
-        // can be hundreds of KB for large catalogs, exhausting the 5 MB localStorage quota.
-        // rawData remains in memory for the current session (ProductSummaryModal uses it).
-        const lean = products.map((p) => {
-          const copy = { ...p };
-          delete copy.rawData;
-          return copy;
-        });
-        localStorage.setItem('cbm-products', JSON.stringify(lean));
-      } catch {
-        reportStorageError();
-      }
+      /* rawData holds every original CSV/Excel column and can run to hundreds of
+         KB, which exhausts the ~5 MB localStorage quota. It is stripped here and
+         written to IndexedDB instead — so unlike before, it now survives a page
+         refresh and the Product Summary modal keeps working. */
+      const lean = products.map((p) => {
+        const copy = { ...p };
+        delete copy.rawData;
+        return copy;
+      });
+      const res = writeJSON(STORAGE_KEYS.products, wrap(lean));
+      if (!res.ok) reportStorageError();
+
+      const withRaw = products.filter((p) => p.rawData);
+      if (withRaw.length > 0) putRawData(withRaw);
+      pruneRawData(products.map((p) => p.id));
     }, 500);
     return () => clearTimeout(productsTimerRef.current);
   }, [products, reportStorageError]);
@@ -154,11 +158,7 @@ export function useShipment() {
   useEffect(() => {
     clearTimeout(shipmentTimerRef.current);
     shipmentTimerRef.current = setTimeout(() => {
-      try {
-        localStorage.setItem('cbm-shipment', JSON.stringify(shipment));
-      } catch {
-        reportStorageError();
-      }
+      if (!writeJSON(STORAGE_KEYS.shipment, wrap(shipment)).ok) reportStorageError();
     }, 500);
     return () => clearTimeout(shipmentTimerRef.current);
   }, [shipment, reportStorageError]);
@@ -182,14 +182,8 @@ export function useShipment() {
   useEffect(() => {
     clearTimeout(metaTimerRef.current);
     metaTimerRef.current = setTimeout(() => {
-      try {
-        localStorage.setItem(
-          'cbm-shipment-meta',
-          JSON.stringify({ poNumber, containerType, freightMode })
-        );
-      } catch {
-        reportStorageError();
-      }
+      const ok = writeJSON(STORAGE_KEYS.meta, { poNumber, containerType, freightMode }).ok;
+      if (!ok) reportStorageError();
     }, 500);
     return () => clearTimeout(metaTimerRef.current);
   }, [poNumber, containerType, freightMode, reportStorageError]);
@@ -500,10 +494,15 @@ export function useShipment() {
       setShipment((p) =>
         p.map((i) => {
           if (i.id !== id) return i;
-          const newQty = Math.max(1, qty);
-          const pack = i.packSize || 1;
+          /* clampInt, not Math.max(1, qty): `Math.max(1, NaN)` is NaN, which then
+             propagated into totalPcs and every downstream total, rendering as
+             "NaN" across the UI and exports. It also caps absurd pasted values. */
+          const newQty = clampInt(qty, 1, MAX_QTY);
+          const pack = clampInt(i.packSize, 1);
+          const currentQty = clampInt(i.quantity, 1);
+          const currentPcs = clampInt(i.totalPcs, 0) || currentQty * pack;
           // Pieces in the current last box (partial boxes stay partial)
-          const lastBox = (i.totalPcs || i.quantity * pack) - (i.quantity - 1) * pack;
+          const lastBox = currentPcs - (currentQty - 1) * pack;
           const safeLast = lastBox > 0 && lastBox <= pack ? lastBox : pack;
           return {
             ...i,
@@ -589,15 +588,22 @@ export function useShipment() {
     () =>
       shipment.reduce(
         (acc, item) => {
-          const pcs = item.totalPcs || item.packSize * item.quantity;
+          /* Coerce per item rather than trusting the record. Schema normalisation
+             covers persisted data, but items also arrive from drag-drop and the
+             form — and a single NaN here silently turns every total into NaN. */
+          const qty = clampInt(item?.quantity, 1);
+          const pack = clampInt(item?.packSize, 1);
+          const pcs = clampInt(item?.totalPcs, 0) || pack * qty;
+          const cbmPerShipper = safeNonNegative(item?.cbmPerShipper);
+          const netPerUnit = safeNonNegative(item?.netWeightPerUnit);
+          const grossPerShipper = safeNonNegative(item?.grossWeightPerShipper);
           return {
-            cbm: acc.cbm + item.cbmPerShipper * item.quantity,
-            grossWeight:
-              acc.grossWeight + item.grossWeightPerShipper * item.quantity,
+            cbm: acc.cbm + cbmPerShipper * qty,
+            grossWeight: acc.grossWeight + grossPerShipper * qty,
             // Net weight follows the REAL piece count so a partial last box
             // isn't billed as full (matches the form preview maths).
-            netWeight: acc.netWeight + item.netWeightPerUnit * pcs,
-            shippers: acc.shippers + item.quantity,
+            netWeight: acc.netWeight + netPerUnit * pcs,
+            shippers: acc.shippers + qty,
             totalPcs: acc.totalPcs + pcs,
           };
         },

@@ -1,20 +1,26 @@
 /**
  * Unit conversion & CBM calculation helpers.
  */
+import { safeNum, safeNonNegative } from './numbers';
 
 /**
  * Convert a dimension value to centimeters.
- * @param {number} v - The value to convert.
+ *
+ * Input is coerced through `safeNum`, so a spreadsheet string like "1.234,56"
+ * or " 50 cm " converts correctly instead of poisoning the result with NaN.
+ *
+ * @param {number|string} v - The value to convert.
  * @param {string} u - The unit ('cm', 'mm', 'inches', 'feet', 'meters').
  * @returns {number} The value in centimeters.
  */
 export const toCm = (v, u) => {
-  if (u === 'cm') return v;
-  if (u === 'mm') return v / 10;
-  if (u === 'inches') return v * 2.54;
-  if (u === 'feet') return v * 30.48;
-  if (u === 'meters') return v * 100;
-  return v;
+  const n = safeNum(v, 0);
+  if (u === 'mm') return n / 10;
+  if (u === 'inches') return n * 2.54;
+  if (u === 'feet') return n * 30.48;
+  if (u === 'meters') return n * 100;
+  // 'cm' and any unrecognised unit pass through unchanged.
+  return n;
 };
 
 /**
@@ -24,12 +30,12 @@ export const toCm = (v, u) => {
  * @returns {number} The value in the target unit.
  */
 export const fromCm = (v, u) => {
-  if (u === 'cm') return v;
-  if (u === 'mm') return v * 10;
-  if (u === 'inches') return v / 2.54;
-  if (u === 'feet') return v / 30.48;
-  if (u === 'meters') return v / 100;
-  return v;
+  const n = safeNum(v, 0);
+  if (u === 'mm') return n * 10;
+  if (u === 'inches') return n / 2.54;
+  if (u === 'feet') return n / 30.48;
+  if (u === 'meters') return n / 100;
+  return n;
 };
 
 /**
@@ -47,27 +53,53 @@ export const convertDim = (v, from, to) => {
 
 /**
  * Calculate CBM (Cubic Meters) from dimensions.
- * @param {number} l - Length.
- * @param {number} w - Width.
- * @param {number} h - Height.
+ *
+ * Dimensions are forced non-negative: a negative volume is never a real answer,
+ * and letting one through produced negative CBM totals and negative container
+ * fill percentages.
+ *
+ * @param {number|string} l - Length.
+ * @param {number|string} w - Width.
+ * @param {number|string} h - Height.
  * @param {string} u - The unit of the dimensions.
  * @returns {number} Volume in cubic meters.
  */
 export const calcCBM = (l, w, h, u) => {
-  return (toCm(l, u) * toCm(w, u) * toCm(h, u)) / 1_000_000;
+  const cm =
+    toCm(safeNonNegative(l), u) * toCm(safeNonNegative(w), u) * toCm(safeNonNegative(h), u);
+  return Number.isFinite(cm) ? cm / 1_000_000 : 0;
 };
 
 /**
  * Adaptive CBM formatter — prevents 0.00 for small pharmaceutical/medical items.
  * Uses more decimal places only when the value is too small for 2dp to be meaningful.
+ *
+ * Hardened against non-finite and negative input: NaN/Infinity and negative
+ * volumes are meaningless here and previously rendered as "Infinity" or
+ * "-1.000000" in exports.
+ *
  * @param {number} v - CBM value.
  * @returns {string}
  */
 export const fmtCBM = (v) => {
-  if (!v || v === 0) return '0.0000';
-  if (v < 0.0001) return v.toFixed(6);
-  if (v < 0.01) return v.toFixed(4);
-  return v.toFixed(2);
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return '0.0000';
+  if (n < 0.0001) return n.toFixed(6);
+  if (n < 0.01) return n.toFixed(4);
+  return n.toFixed(2);
+};
+
+/**
+ * Higher-precision CBM formatter for per-item detail rows, where 2dp would hide
+ * meaningful differences between small items. Same non-finite guards as `fmtCBM`.
+ *
+ * @param {number} v - CBM value.
+ * @returns {string}
+ */
+export const fmtCBMPrecise = (v) => {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return '0.000';
+  return n < 0.001 ? n.toFixed(5) : n.toFixed(3);
 };
 
 /**
@@ -133,8 +165,13 @@ export const normalizeFreightMode = (m) => {
 export const containersNeeded = (totals, containerType) => {
   const cont = CONTAINERS[containerType];
   if (!cont) return { count: 1, byVolume: 1, byWeight: 1, limitedBy: 'volume' };
-  const byVolume = Math.max(1, Math.ceil(totals.cbm / cont.cbm));
-  const byWeight = Math.max(1, Math.ceil(totals.grossWeight / cont.maxPayloadKg));
+  // safeNonNegative guards against a NaN total reaching Math.ceil, which would
+  // otherwise yield NaN and render as "NaN containers".
+  const byVolume = Math.max(1, Math.ceil(safeNonNegative(totals?.cbm) / cont.cbm));
+  const byWeight = Math.max(
+    1,
+    Math.ceil(safeNonNegative(totals?.grossWeight) / cont.maxPayloadKg)
+  );
   return {
     count: Math.max(byVolume, byWeight),
     byVolume,
