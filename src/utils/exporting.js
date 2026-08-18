@@ -205,6 +205,60 @@ export const exportCSV = (shipment, totals, poNumber, containerType, freightMode
   URL.revokeObjectURL(url);
 };
 
+/** Trigger a browser download for a text blob. */
+const downloadText = (text, filename, mime = 'text/csv;charset=utf-8;') => {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+/**
+ * Export the rows an import rejected, as CSV, with the reason attached.
+ *
+ * Silent truncation is the failure mode this guards against: telling a user
+ * "412 of 500 rows imported" is useless unless they can see exactly which 88
+ * were dropped and why, in their own original columns.
+ *
+ * @param {Array} rejected - Tagged products with status 'skipped'.
+ * @returns {number} How many rows were written.
+ */
+export const exportRejectedRows = (rejected) => {
+  const list = (rejected || []).filter(Boolean);
+  if (list.length === 0) return 0;
+
+  /* Union of every original column, so the output mirrors the user's own file
+     rather than our normalised field names. */
+  const columns = [];
+  const seen = new Set();
+  for (const p of list) {
+    for (const key of Object.keys(p.rawData || {})) {
+      if (!seen.has(key)) { seen.add(key); columns.push(key); }
+    }
+  }
+
+  const rows = list.map((p) => {
+    const row = {
+      'Rejection Reason': p.skipReason || 'Unknown',
+      'Reason Detail': p.detail || '',
+      'Parsed Name': p.name || '',
+    };
+    for (const col of columns) {
+      row[col] = p.rawData?.[col] ?? '';
+    }
+    return row;
+  });
+
+  const csv = Papa.unparse(rows, { newline: '\r\n' });
+  downloadText(`\uFEFF${csv}`, `rejected_rows_${localDateStamp()}.csv`);
+  return rows.length;
+};
+
 /**
  * Export shipment data to a PDF packing list.
  * @param {Array} shipment - Array of shipment items.

@@ -223,8 +223,49 @@ export function useShipment() {
   /* ── Smart de-duplicating import handler ── */
   const handleImportComplete = useCallback(
     (incoming, meta = {}) => {
+      const list = incoming || [];
+
+      /* Import straight into the shipment. Honours a mapped Quantity column, so a
+         file that already carries carton counts becomes a costed shipment in one
+         step instead of a catalog the user then has to re-enter by hand. */
+      if (meta.importTarget === 'shipment') {
+        const items = list
+          .map((p) => {
+            const hasDims = p.length > 0 && p.width > 0 && p.height > 0;
+            // Dimensions are the source of truth whenever they exist.
+            const cbmPerShipper = hasDims
+              ? calcCBM(p.length, p.width, p.height, p.unit || 'cm')
+              : safeNonNegative(p.cbmPerShipper);
+            if (cbmPerShipper <= 0) return null;
+            const packSize = clampInt(p.packSize, 1);
+            const quantity = clampInt(p.quantity, 1, MAX_QTY);
+            return {
+              ...p,
+              id: genItemId(),
+              cbmPerShipper,
+              packSize,
+              quantity,
+              totalPcs: packSize * quantity,
+            };
+          })
+          .filter(Boolean);
+
+        setShipment((prev) => [...prev, ...items]);
+        const dropped = list.length - items.length;
+        showNotice({
+          type: 'success',
+          message: items.length > 0 ? 'Added to shipment' : 'Nothing to add',
+          detail:
+            `${items.length} item${items.length === 1 ? '' : 's'} added` +
+            (dropped > 0 ? ` · ${dropped} had no usable volume` : '') +
+            (meta.skippedInFile > 0 ? ` · ${meta.skippedInFile} rejected` : ''),
+        });
+        setImportOpen(false);
+        return;
+      }
+
       setProducts((prev) => {
-        const { nextProducts, added, skipped } = mergeProducts(prev, incoming);
+        const { nextProducts, added, skipped } = mergeProducts(prev, list);
         const totalSkipped = skipped + (meta.skippedInFile || 0);
         showNotice({
           type: 'success',

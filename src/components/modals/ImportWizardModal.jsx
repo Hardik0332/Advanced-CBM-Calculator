@@ -11,11 +11,22 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   WarningIcon,
+  ExcelIcon,
 } from '../icons/Icons';
 import Modal from '../ui/Modal';
-import { parseFile, parseDimensionString, autoMapHeaders, applyMapping } from '../../utils/fileParser';
+import {
+  parseFile,
+  parseDimensionString,
+  autoMapHeaders,
+  applyMapping,
+  detectColumnLocales,
+  detectDimDelimiter,
+} from '../../utils/fileParser';
+import { FIELD_DEFS } from '../../utils/headerMap';
+import { inferDimensionUnit } from '../../utils/unitInference';
 import { calcCBM, fmtCBM } from '../../utils/calculations';
 import { compositeKey } from '../../utils/deduplication';
+import { exportRejectedRows } from '../../utils/exporting';
 
 /* ═══════════════════════════════════════════════════════
    STEP INDICATOR
@@ -248,35 +259,104 @@ const FileUploadStep = ({ onFileParsed }) => {
   );
 };
 
+
 /* ═══════════════════════════════════════════════════════
    STEP 2 — COLUMN MAPPING
    ═══════════════════════════════════════════════════════ */
+
+/** Fields always shown. */
+const CORE_FIELDS = ['packingString', 'packSize', 'netWeight', 'grossWeight'];
+/** Trade / logistics fields, hidden until asked for so the grid stays scannable. */
+const ADVANCED_FIELDS = [
+  'unit', 'quantity', 'sku', 'hsCode', 'unitPrice', 'currency', 'origin', 'marks',
+];
+
+const FIELD_ICONS = {
+  name: '🏷️', length: '📏', width: '📐', height: '📦', cbm: '🔷',
+  packingString: '📝', packSize: '📋', netWeight: '⚖️', grossWeight: '🏋️',
+  unit: '📐', quantity: '🔢', sku: '#️⃣', hsCode: '🧾', unitPrice: '💰',
+  currency: '💱', origin: '🌍', marks: '✒️',
+};
+
+/** Small badge showing how confident the automatic mapping was. */
+const ConfidenceBadge = ({ level }) => {
+  if (!level) return null;
+  const styles = {
+    high: 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800',
+    medium: 'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-400 border-sky-200 dark:border-sky-800',
+    confirm: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800',
+  };
+  const labels = { high: 'auto', medium: 'auto?', confirm: 'check' };
+  const titles = {
+    high: 'Matched automatically with high confidence',
+    medium: 'Matched automatically — worth a glance',
+    confirm: 'Loose match — please confirm this is the right column',
+  };
+  return (
+    <span
+      title={titles[level]}
+      className={`ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border ${styles[level]}`}
+    >
+      {labels[level]}
+    </span>
+  );
+};
+
 const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
   const autoMap = useMemo(() => autoMapHeaders(headers), [headers]);
-  const [mapping, setMapping] = useState(() => ({
-    name: autoMap.mapping.name || '',
-    length: autoMap.mapping.length || '',
-    width: autoMap.mapping.width || '',
-    height: autoMap.mapping.height || '',
-    cbm: autoMap.mapping.cbm || '',
-    packingString: autoMap.mapping.packingString || '',
-    packSize: autoMap.mapping.packSize || '',
-    netWeight: autoMap.mapping.netWeight || '',
-    grossWeight: autoMap.mapping.grossWeight || '',
-  }));
+
+  const [mapping, setMapping] = useState(() => {
+    const init = {};
+    for (const key of Object.keys(FIELD_DEFS)) {
+      if (key === 'dims') continue;
+      init[key] = autoMap.mapping[key] || '';
+    }
+    return init;
+  });
   const [combinedDim, setCombinedDim] = useState(!!autoMap.combinedDimColumn);
   const [dimColumn, setDimColumn] = useState(autoMap.combinedDimColumn || '');
-  const [delimiter, setDelimiter] = useState('x');
+  const [manualDelimiter, setManualDelimiter] = useState('');
   const [importUnit, setImportUnit] = useState('cm');
   // Weight basis: are the weight columns per-shipper (carton) or per-unit (piece)?
   const [netWeightBasis, setNetWeightBasis] = useState('shipper');
   const [grossWeightBasis, setGrossWeightBasis] = useState('shipper');
+  const [importTarget, setImportTarget] = useState('directory');
+  const [showAdvanced, setShowAdvanced] = useState(
+    () => ADVANCED_FIELDS.some((f) => autoMap.mapping[f])
+  );
+  const [unitHintDismissed, setUnitHintDismissed] = useState(false);
+
+  /* Per-column number formats, so an ambiguous "1,234" is read consistently. */
+  const locales = useMemo(() => detectColumnLocales(rows, mapping), [rows, mapping]);
+
+  /* Auto-detect the combined-dimension separator instead of always assuming 'x',
+     which silently pushed files using '*' or '×' onto the loose fallback path.
+     Derived rather than stored in state: an empty `manualDelimiter` means "still
+     using detection", so the detected value follows a change of column for free. */
+  const detectedDelimiter = useMemo(() => {
+    if (!combinedDim || !dimColumn) return 'x';
+    return detectDimDelimiter((rows || []).map((r) => r?.[dimColumn]));
+  }, [combinedDim, dimColumn, rows]);
+
+  const delimiterTouched = manualDelimiter !== '';
+  const delimiter = delimiterTouched ? manualDelimiter : detectedDelimiter;
 
   const dimPreview = useMemo(() => {
     if (!combinedDim || !dimColumn || !rows[0]) return null;
     const raw = String(rows[0][dimColumn] || '');
     return { raw, parsed: parseDimensionString(raw, delimiter) };
   }, [combinedDim, dimColumn, delimiter, rows]);
+
+  /* Does the file's own data agree with the selected unit? */
+  const unitHint = useMemo(() => {
+    if (combinedDim) return { suggested: null };
+    return inferDimensionUnit(rows, mapping, importUnit, locales);
+  }, [rows, mapping, importUnit, locales, combinedDim]);
+
+  const applyUnitSuggestion = useCallback(() => {
+    if (unitHint.suggested) setImportUnit(unitHint.suggested);
+    setUnitHintDismissed(false);
+  }, [unitHint.suggested]);
 
   const canProceed =
     mapping.name &&
@@ -292,14 +372,19 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
       unit: importUnit,
       netWeightBasis,
       grossWeightBasis,
+      locales,
     };
     const finalMapping = { ...mapping };
+    // Drop empty selections so `mapping.x` is falsy for unmapped fields.
+    for (const k of Object.keys(finalMapping)) {
+      if (!finalMapping[k]) delete finalMapping[k];
+    }
     if (combinedDim) {
       delete finalMapping.length;
       delete finalMapping.width;
       delete finalMapping.height;
     }
-    onMappingComplete({ mapping: finalMapping, dimConfig });
+    onMappingComplete({ mapping: finalMapping, dimConfig, importTarget });
   };
 
   const selClass = (hasValue) =>
@@ -311,21 +396,50 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
       : 'border-surface-200 dark:border-surface-700'
     }`;
 
+  /* Show the badge only while the auto-guess is still in place — once the user
+     picks a column themselves, confidence in our guess is irrelevant. */
+  const badgeFor = (field) =>
+    mapping[field] && mapping[field] === autoMap.mapping[field]
+      ? autoMap.confidence[field]
+      : null;
+
   const dimsMapped = !!mapping.length && !!mapping.width && !!mapping.height;
-  const fields = [
-    { key: 'name', label: 'Product Name', required: true, icon: '🏷️' },
-    ...(!combinedDim
-      ? [
-        { key: 'length', label: 'Length', required: !mapping.cbm, icon: '📏' },
-        { key: 'width', label: 'Width', required: !mapping.cbm, icon: '📐' },
-        { key: 'height', label: 'Height', required: !mapping.cbm, icon: '📦' },
-        { key: 'cbm', label: 'CBM (pre-calc)', required: !dimsMapped, icon: '🔷' },
-      ]
-      : []),
-    { key: 'packingString', label: 'Packing Description', required: false, icon: '📝' },
-    { key: 'packSize', label: 'Pack Size', required: false, icon: '📋' },
-    { key: 'netWeight', label: 'Net Weight', required: false, icon: '⚖️' },
-    { key: 'grossWeight', label: 'Gross Weight', required: false, icon: '🏋️' },
+
+  const fieldRow = (key, requiredOverride) => {
+    const def = FIELD_DEFS[key];
+    const required = requiredOverride ?? def?.required ?? false;
+    return (
+      <div key={key} className="space-y-1.5 min-w-0">
+        <label
+          htmlFor={`map-${key}`}
+          className="flex items-center gap-1.5 text-xs font-semibold text-surface-500 dark:text-surface-300 uppercase tracking-wider"
+        >
+          <span>{FIELD_ICONS[key] || '•'}</span>
+          <span className="truncate">{def?.label || key}</span>
+          {required && <span className="text-rose-400 flex-shrink-0">*</span>}
+          <ConfidenceBadge level={badgeFor(key)} />
+        </label>
+        <select
+          id={`map-${key}`}
+          value={mapping[key] || ''}
+          onChange={(e) => setMapping((p) => ({ ...p, [key]: e.target.value }))}
+          className={selClass(!!mapping[key])}
+        >
+          <option value="">— Select —</option>
+          {headers.map((h) => (
+            <option key={h} value={h}>
+              {h}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  };
+
+  const visibleCoreFields = [
+    'name',
+    ...(!combinedDim ? ['length', 'width', 'height', 'cbm'] : []),
+    ...CORE_FIELDS,
   ];
 
   return (
@@ -344,6 +458,37 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
             </span>
           ))}
         </div>
+      </div>
+
+      {/* Import destination */}
+      <div className="p-4 rounded-xl bg-surface-50 dark:bg-surface-800/60 border border-surface-200 dark:border-surface-700">
+        <p className="text-xs font-bold text-surface-700 dark:text-surface-300 uppercase tracking-wider mb-3">
+          📥 Import into
+        </p>
+        <div className="flex gap-1 p-1 rounded-full bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700">
+          {[
+            ['directory', 'Product Directory'],
+            ['shipment', 'Active Shipment'],
+          ].map(([val, label]) => (
+            <button
+              key={val}
+              type="button"
+              onClick={() => setImportTarget(val)}
+              className={`flex-1 py-2 px-3 text-[11px] font-bold uppercase tracking-wide rounded-full focus:outline-none
+                ${importTarget === val
+                  ? 'bg-accent-600 text-white shadow-panel'
+                  : 'text-surface-500 dark:text-surface-300 hover:text-surface-700 dark:hover:text-surface-50'
+                }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-surface-500 dark:text-surface-300 mt-2">
+          {importTarget === 'directory'
+            ? 'Products are saved to your catalog for reuse.'
+            : 'Rows go straight into the current shipment. Map a Quantity column to set carton counts.'}
+        </p>
       </div>
 
       {/* Combined dimension toggle */}
@@ -391,7 +536,10 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
                 <select
                   id="dim-column-select"
                   value={dimColumn}
-                  onChange={(e) => setDimColumn(e.target.value)}
+                  onChange={(e) => {
+                    setDimColumn(e.target.value);
+                    setManualDelimiter(''); // hand control back to auto-detection
+                  }}
                   className={selClass(!!dimColumn)}
                 >
                   <option value="">— Select —</option>
@@ -405,15 +553,18 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
               <div className="space-y-1.5 min-w-0">
                 <label
                   htmlFor="delimiter-input"
-                  className="block text-xs font-semibold text-surface-500 dark:text-surface-300 uppercase tracking-wider"
+                  className="flex items-center gap-1.5 text-xs font-semibold text-surface-500 dark:text-surface-300 uppercase tracking-wider"
                 >
-                  Delimiter
+                  <span>Delimiter</span>
+                  {!delimiterTouched && dimColumn && (
+                    <ConfidenceBadge level="high" />
+                  )}
                 </label>
                 <input
                   id="delimiter-input"
                   type="text"
                   value={delimiter}
-                  onChange={(e) => setDelimiter(e.target.value)}
+                  onChange={(e) => setManualDelimiter(e.target.value)}
                   placeholder="x"
                   className="w-full max-w-full bg-white/80 dark:bg-surface-800/80 border border-surface-200 dark:border-surface-700 rounded-xl px-3 py-2.5 text-sm font-medium text-surface-800 dark:text-surface-50 focus:outline-none focus:ring-2 focus:ring-accent-500/40"
                 />
@@ -456,7 +607,10 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
             <button
               key={u}
               type="button"
-              onClick={() => setImportUnit(u)}
+              onClick={() => {
+                setImportUnit(u);
+                setUnitHintDismissed(false);
+              }}
               className={`py-2 px-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide truncate
                 ${importUnit === u
                   ? 'bg-accent-50 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 border border-accent-300 dark:border-accent-700'
@@ -468,41 +622,78 @@ const ColumnMappingStep = ({ headers, rows, onMappingComplete, onBack }) => {
           ))}
         </div>
         <p className="text-[11px] text-surface-500 dark:text-surface-300 mt-2">
-          Select the unit your L/W/H values are measured in. Default is cm.
+          {mapping.unit
+            ? `Used only for rows where the "${mapping.unit}" column is blank or unrecognised.`
+            : 'Select the unit your L/W/H values are measured in. Default is cm.'}
         </p>
+
+        {/* Unit inference — suggests, never silently rewrites */}
+        {unitHint.suggested && !unitHintDismissed && (
+          <div className="mt-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 fade-in">
+            <div className="flex items-start gap-2">
+              <span className="text-amber-500 flex-shrink-0 mt-0.5">
+                <WarningIcon />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-amber-700 dark:text-amber-400">
+                  These dimensions look like <strong>{unitHint.suggested}</strong>, not{' '}
+                  <strong>{importUnit}</strong>.
+                </p>
+                <p className="text-[11px] text-amber-700/80 dark:text-amber-400/80 mt-0.5">
+                  {unitHint.reason}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-2">
+              <button
+                type="button"
+                onClick={applyUnitSuggestion}
+                className="flex-1 py-1.5 px-2 rounded-lg text-[10px] font-bold uppercase tracking-wide bg-amber-500 hover:bg-amber-400 text-white shadow-sm active:scale-[0.98]"
+              >
+                Use {unitHint.suggested}
+              </button>
+              <button
+                type="button"
+                onClick={() => setUnitHintDismissed(true)}
+                className="flex-1 py-1.5 px-2 rounded-lg text-[10px] font-bold uppercase tracking-wide bg-white dark:bg-surface-800 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/60 active:scale-[0.98]"
+              >
+                Keep {importUnit}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Mapping dropdowns */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {fields.map((field) => (
-          <div key={field.key} className="space-y-1.5 min-w-0">
-            <label
-              htmlFor={`map-${field.key}`}
-              className="flex items-center gap-1.5 text-xs font-semibold text-surface-500 dark:text-surface-300 uppercase tracking-wider"
-            >
-              <span>{field.icon}</span>
-              <span className="truncate">{field.label}</span>
-              {field.required && (
-                <span className="text-rose-400 flex-shrink-0">*</span>
-              )}
-            </label>
-            <select
-              id={`map-${field.key}`}
-              value={mapping[field.key]}
-              onChange={(e) =>
-                setMapping((p) => ({ ...p, [field.key]: e.target.value }))
-              }
-              className={selClass(!!mapping[field.key])}
-            >
-              <option value="">— Select —</option>
-              {headers.map((h) => (
-                <option key={h} value={h}>
-                  {h}
-                </option>
-              ))}
-            </select>
+        {visibleCoreFields.map((key) => {
+          // Length/width/height and CBM are alternatives: either satisfies the step.
+          if (key === 'cbm') return fieldRow(key, !dimsMapped);
+          if (['length', 'width', 'height'].includes(key)) {
+            return fieldRow(key, !mapping.cbm);
+          }
+          return fieldRow(key);
+        })}
+      </div>
+
+      {/* Advanced / trade fields */}
+      <div>
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((p) => !p)}
+          className="flex items-center gap-2 text-xs font-bold text-accent-600 dark:text-accent-300 hover:underline"
+        >
+          <span>{showAdvanced ? '−' : '+'}</span>
+          {showAdvanced ? 'Hide' : 'Show'} more fields
+          <span className="font-normal text-surface-500 dark:text-surface-400">
+            (unit, quantity, HS code, price, origin…)
+          </span>
+        </button>
+        {showAdvanced && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 fade-in">
+            {ADVANCED_FIELDS.map((key) => fieldRow(key))}
           </div>
-        ))}
+        )}
       </div>
 
       {/* Weight basis — only shown when a weight column is mapped */}
@@ -604,6 +795,9 @@ const DataPreviewStep = memo(({
   existingProducts,
   onImport,
   onBack,
+  importTarget = 'directory',
+  truncated = false,
+  totalRows = 0,
 }) => {
   const allTagged = useMemo(
     () => applyMapping(rows, mapping, dimConfig),
@@ -624,6 +818,7 @@ const DataPreviewStep = memo(({
     });
   }, [allTagged, existingProducts]);
 
+  /* Warned rows still import — the warning is advisory, not a rejection. */
   const importableProducts = useMemo(
     () =>
       taggedProducts
@@ -632,18 +827,26 @@ const DataPreviewStep = memo(({
           const clean = { ...p };
           delete clean.status;
           delete clean.skipReason;
+          delete clean.warnings;
+          delete clean.detail;
           return clean;
         }),
+    [taggedProducts]
+  );
+
+  const rejectedRows = useMemo(
+    () => taggedProducts.filter((p) => p.status === 'skipped'),
     [taggedProducts]
   );
 
   const counts = useMemo(
     () => ({
       new: taggedProducts.filter((p) => p.status === 'new').length,
-      skipped: taggedProducts.filter((p) => p.status === 'skipped').length,
+      warn: taggedProducts.filter((p) => p.status === 'warn').length,
+      skipped: rejectedRows.length,
       total: rows.length,
     }),
-    [taggedProducts, rows.length]
+    [taggedProducts, rejectedRows.length, rows.length]
   );
 
   const [activeFilter, setActiveFilter] = useState('all');
@@ -657,27 +860,34 @@ const DataPreviewStep = memo(({
   const handleImport = () => {
     setImporting(true);
     // Forward the in-file skip count so the result toast is accurate.
-    setTimeout(() => onImport(importableProducts, { skippedInFile: counts.skipped }), 500);
+    setTimeout(
+      () => onImport(importableProducts, { skippedInFile: counts.skipped, importTarget }),
+      500
+    );
   };
 
   const visibleRows = useMemo(() => {
-    if (activeFilter === 'new')
-      return taggedProducts.filter((p) => p.status === 'new');
-    if (activeFilter === 'skipped')
-      return taggedProducts.filter((p) => p.status === 'skipped');
-    return taggedProducts;
+    if (activeFilter === 'all') return taggedProducts;
+    return taggedProducts.filter((p) => p.status === activeFilter);
   }, [taggedProducts, activeFilter]);
 
   const chipDefs = [
     {
       key: 'new',
-      label: `✓ ${counts.new} new`,
+      label: `✓ ${counts.new} clean`,
       base: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400',
       active: 'ring-2 ring-emerald-400 dark:ring-emerald-600 scale-[1.04]',
     },
     {
+      key: 'warn',
+      label: `! ${counts.warn} to review`,
+      base: 'bg-sky-50 dark:bg-sky-950/30 border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-400',
+      active: 'ring-2 ring-sky-400 dark:ring-sky-600 scale-[1.04]',
+      hide: counts.warn === 0,
+    },
+    {
       key: 'skipped',
-      label: `⚠ ${counts.skipped} skipped`,
+      label: `⚠ ${counts.skipped} rejected`,
       base: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400',
       active: 'ring-2 ring-amber-400 dark:ring-amber-600 scale-[1.04]',
       hide: counts.skipped === 0,
@@ -698,10 +908,29 @@ const DataPreviewStep = memo(({
             skip
           </span>
           {p.skipReason && (
-            <span className="text-[9px] text-rose-500 dark:text-rose-400 font-medium">
+            <span
+              className="text-[9px] text-rose-500 dark:text-rose-400 font-medium"
+              title={p.detail || p.skipReason}
+            >
               {p.skipReason}
             </span>
           )}
+        </span>
+      );
+    }
+    if (p.status === 'warn') {
+      return (
+        <span className="ml-1.5 inline-flex items-center gap-1 flex-shrink-0">
+          <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-700 uppercase tracking-wide">
+            check
+          </span>
+          <span
+            className="text-[9px] text-sky-600 dark:text-sky-400 font-medium truncate max-w-[140px]"
+            title={(p.warnings || []).join(' · ')}
+          >
+            {(p.warnings || [])[0]}
+            {p.warnings?.length > 1 ? ` +${p.warnings.length - 1}` : ''}
+          </span>
         </span>
       );
     }
@@ -733,6 +962,37 @@ const DataPreviewStep = memo(({
             </button>
           ))}
       </div>
+
+      {/* Row-cap notice — never let truncation pass silently as "imported everything" */}
+      {truncated && (
+        <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 flex items-start gap-2">
+          <span className="text-amber-500 flex-shrink-0 mt-0.5">
+            <WarningIcon />
+          </span>
+          <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+            This file has <strong>{totalRows.toLocaleString()}</strong> rows — only the
+            first <strong>{rows.length.toLocaleString()}</strong> are being read. Split
+            the file to import the rest.
+          </p>
+        </div>
+      )}
+
+      {/* Recover the rejected rows rather than losing them */}
+      {counts.skipped > 0 && (
+        <div className="p-3 rounded-xl bg-surface-50 dark:bg-surface-800/60 border border-surface-200 dark:border-surface-700 flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-[11px] text-surface-600 dark:text-surface-300 min-w-0">
+            <strong>{counts.skipped}</strong> row{counts.skipped === 1 ? '' : 's'} will not
+            be imported. Download them with their original columns and the reason.
+          </p>
+          <button
+            type="button"
+            onClick={() => exportRejectedRows(rejectedRows)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/30 flex-shrink-0"
+          >
+            <ExcelIcon /> Download rejected rows
+          </button>
+        </div>
+      )}
 
       {/* Full scrollable preview table */}
       <div className="rounded-xl border border-surface-200 dark:border-surface-700 overflow-hidden">
@@ -788,6 +1048,7 @@ const DataPreviewStep = memo(({
                   <>
                     {visibleRows.slice(0, previewLimit).map((p, i) => {
                       const isSkipped = p.status === 'skipped';
+                      const isWarn = p.status === 'warn';
                       const cbm = isSkipped
                         ? 'N/A'
                         : p.length > 0 && p.width > 0 && p.height > 0
@@ -801,7 +1062,9 @@ const DataPreviewStep = memo(({
                           className={`border-t border-surface-100 dark:border-surface-700/60
                             ${isSkipped
                               ? 'bg-amber-50/40 dark:bg-amber-950/10 opacity-70'
-                              : 'hover:bg-accent-50/30 dark:hover:bg-accent-950/20'
+                              : isWarn
+                                ? 'bg-sky-50/40 dark:bg-sky-950/10'
+                                : 'hover:bg-accent-50/30 dark:hover:bg-accent-950/20'
                             }`}
                         >
                           <td className="px-4 py-2.5 font-semibold text-surface-800 dark:text-surface-50 max-w-[180px]">
@@ -889,7 +1152,8 @@ const DataPreviewStep = memo(({
             </>
           ) : (
             <>
-              <CheckCircleIcon /> Import {importableProducts.length} Products
+              <CheckCircleIcon /> Import {importableProducts.length}{' '}
+              {importTarget === 'shipment' ? 'to Shipment' : 'Products'}
             </>
           )}
         </button>
@@ -988,6 +1252,9 @@ const ImportWizardModal = memo(({ isOpen, onClose, onImport, existingProducts })
           rows={fileData.rows}
           mapping={mappingConfig.mapping}
           dimConfig={mappingConfig.dimConfig}
+          importTarget={mappingConfig.importTarget}
+          truncated={fileData.truncated}
+          totalRows={fileData.totalRows || fileData.rows.length}
           existingProducts={existingProducts}
           onImport={handleImport}
           onBack={handleBackToStep2}

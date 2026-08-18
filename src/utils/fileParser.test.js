@@ -104,8 +104,17 @@ describe('applyMapping', () => {
     expect(out[0].status).toBe('new');
   });
 
-  it('skips rows with missing dims when dims are mapped', () => {
+  it('skips rows where a mapped dimension is zero', () => {
     const out = applyMapping([{ Name: 'B', L: 0, W: 10, H: 10 }], mapping, { unit: 'cm' });
+    expect(out[0].status).toBe('skipped');
+    /* Reported as Zero/Negative rather than the old blanket "Missing Dimensions":
+       two of three dimensions are present, so the user needs to look at a cell,
+       not hunt for an absent column. */
+    expect(out[0].skipReason).toBe('Zero/Negative Dimension');
+  });
+
+  it('reports Missing Dimensions when no dimension data exists at all', () => {
+    const out = applyMapping([{ Name: 'B', L: '', W: '', H: '' }], mapping, { unit: 'cm' });
     expect(out[0].status).toBe('skipped');
     expect(out[0].skipReason).toBe('Missing Dimensions');
   });
