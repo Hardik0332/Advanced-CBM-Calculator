@@ -12,9 +12,19 @@ import {
   ExcelIcon,
   PdfIcon,
 } from '../icons/Icons';
-import { CONTAINERS, FREIGHT_MODES, fmtCBM, fmtCBMPrecise } from '../../utils/calculations';
+import {
+  CONTAINERS,
+  CUSTOM_CONTAINER,
+  NO_CONTAINER,
+  FREIGHT_MODES,
+  fmtCBM,
+  fmtCBMPrecise,
+} from '../../utils/calculations';
+import { billedFigure } from '../../utils/freight';
 import { safeNum } from '../../utils/numbers';
 import { exportExcel, exportCSV, exportPDF } from '../../utils/exporting';
+import FreightWorkings from './FreightWorkings';
+import ShipmentRulesPanel from './ShipmentRulesPanel';
 
 const colorStyles = {
   indigo: {
@@ -71,9 +81,20 @@ const ActiveShipment = memo(({
   setPoNumber,
   containerType,
   setContainerType,
+  customContainer,
+  updateCustomContainer,
   freightMode,
   setFreightMode,
+  destinationCountry,
+  setDestinationCountry,
+  carrierProfile,
+  setCarrierProfile,
+  ruleOverrides,
+  updateRuleOverride,
+  resetRuleOverrides,
   totals,
+  freight,
+  container,
   volumetricWeight,
   chargeableWeight,
   containerPct,
@@ -114,9 +135,26 @@ const ActiveShipment = memo(({
     }
   };
 
-  const cont = CONTAINERS[containerType];
-  const overVolume = cont ? totals.cbm - cont.cbm : 0;
-  const overWeight = cont ? totals.grossWeight - cont.maxPayloadKg : 0;
+  /* `container` is null for LCL / loose cargo and for a custom entry with no
+     capacity typed in yet — both are normal states, so every read of it is
+     optional and the fill bars simply don't render. */
+  const cont = container;
+  const overVolume = cont?.cbm ? totals.cbm - cont.cbm : 0;
+  /* Measured against the governing cap, so a US-lane overweight warning fires at
+     the road limit rather than at the unreachable ISO rating. */
+  const payloadCapKg = containerPlan?.payloadCapKg || cont?.maxPayloadKg || 0;
+  const overWeight = payloadCapKg ? totals.grossWeight - payloadCapKg : 0;
+  const roadCapped = containerPlan?.payloadCapSource === 'road';
+  const billed = billedFigure(freight);
+  const isCustom = containerType === CUSTOM_CONTAINER;
+  /* Export calls need the custom capacity and the rule selections too, or an
+     exported document would quote different numbers from the screen. */
+  const exportOpts = {
+    customContainer,
+    country: destinationCountry,
+    carrier: carrierProfile,
+    overrides: ruleOverrides,
+  };
 
   return (
     <section className="lg:col-span-6 fade-in" style={{ animationDelay: '0.12s' }}>
@@ -160,7 +198,7 @@ const ActiveShipment = memo(({
               <>
                 <button
                   id="export-excel-btn"
-                  onClick={() => exportExcel(shipment, totals, poNumber, containerType, freightMode)}
+                  onClick={() => exportExcel(shipment, totals, poNumber, containerType, freightMode, exportOpts)}
                   title="Export Excel"
                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/30"
                 >
@@ -168,7 +206,7 @@ const ActiveShipment = memo(({
                 </button>
                 <button
                   id="export-csv-btn"
-                  onClick={() => exportCSV(shipment, totals, poNumber, containerType, freightMode)}
+                  onClick={() => exportCSV(shipment, totals, poNumber, containerType, freightMode, exportOpts)}
                   title="Export CSV"
                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 hover:bg-teal-100 dark:hover:bg-teal-900/30"
                 >
@@ -177,7 +215,7 @@ const ActiveShipment = memo(({
                 <button
                   id="export-pdf-btn"
                   onClick={() =>
-                    exportPDF(shipment, totals, poNumber, containerType, freightMode)
+                    exportPDF(shipment, totals, poNumber, containerType, freightMode, exportOpts)
                   }
                   title="Export PDF"
                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/30"
@@ -391,6 +429,7 @@ const ActiveShipment = memo(({
                   id="container-select"
                   value={containerType}
                   onChange={(e) => setContainerType(e.target.value)}
+                  aria-label="Container type"
                   className="bg-white dark:bg-surface-700 border border-surface-200 dark:border-surface-700 rounded-lg px-2 py-1 text-[11px] font-bold text-surface-700 dark:text-surface-300 focus:outline-none focus:ring-1 focus:ring-accent-500/40"
                 >
                   {Object.entries(CONTAINERS).map(([k, v]) => (
@@ -398,67 +437,170 @@ const ActiveShipment = memo(({
                       {v.label} ({v.cbm} m³)
                     </option>
                   ))}
+                  <option value={CUSTOM_CONTAINER}>Custom container…</option>
+                  <option value={NO_CONTAINER}>LCL / no container</option>
                 </select>
               </div>
 
-              {/* Volume bar */}
-              <div>
-                <UtilizationBar pct={containerPct} />
-                <div className="flex justify-between mt-1.5">
-                  <span className="text-[11px] font-mono font-bold text-surface-700 dark:text-surface-300">
-                    Volume: {fmtCBM(totals.cbm)} / {cont.cbm} m³
-                  </span>
-                  <span
-                    className={`text-[11px] font-mono font-bold ${containerPct > 100
-                      ? 'text-rose-600 dark:text-rose-400'
-                      : containerPct > 95
-                        ? 'text-amber-600 dark:text-amber-400'
-                        : 'text-accent-600 dark:text-accent-300'
-                      }`}
-                  >
-                    {containerPct.toFixed(2)}%
-                  </span>
-                </div>
-              </div>
-
-              {/* Payload bar — only meaningful once weights are entered */}
-              {totals.grossWeight > 0 && (
-                <div>
-                  <UtilizationBar pct={payloadPct} />
-                  <div className="flex justify-between mt-1.5">
-                    <span className="text-[11px] font-mono font-bold text-surface-700 dark:text-surface-300">
-                      Payload: {totals.grossWeight.toFixed(0)} / {cont.maxPayloadKg.toLocaleString()} kg
-                    </span>
-                    <span
-                      className={`text-[11px] font-mono font-bold ${payloadPct > 100
-                        ? 'text-rose-600 dark:text-rose-400'
-                        : payloadPct > 95
-                          ? 'text-amber-600 dark:text-amber-400'
-                          : 'text-accent-600 dark:text-accent-300'
-                        }`}
+              {/* Custom capacity — a rail wagon, a truck, a part-chartered hold.
+                  Either field may be left blank; a blank one simply stops
+                  constraining the plan rather than reporting a zero-capacity box. */}
+              {isCustom && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div className="col-span-2 sm:col-span-1">
+                    <label
+                      htmlFor="custom-container-label"
+                      className="block text-[9px] uppercase tracking-wider font-bold text-surface-500 dark:text-surface-300 mb-1"
                     >
-                      {payloadPct.toFixed(2)}%
-                    </span>
+                      Name
+                    </label>
+                    <input
+                      id="custom-container-label"
+                      type="text"
+                      value={customContainer?.label ?? ''}
+                      onChange={(e) => updateCustomContainer('label', e.target.value)}
+                      placeholder="e.g. 53' trailer"
+                      className="w-full bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700 rounded-lg px-2 py-1.5 text-[11px] font-medium text-surface-800 dark:text-surface-100 focus:outline-none focus:ring-1 focus:ring-accent-500/40"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="custom-container-cbm"
+                      className="block text-[9px] uppercase tracking-wider font-bold text-surface-500 dark:text-surface-300 mb-1"
+                    >
+                      Usable m³
+                    </label>
+                    <input
+                      id="custom-container-cbm"
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={customContainer?.cbm || ''}
+                      onChange={(e) => updateCustomContainer('cbm', e.target.value)}
+                      placeholder="0"
+                      className="w-full bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700 rounded-lg px-2 py-1.5 text-[11px] font-mono font-bold text-surface-800 dark:text-surface-100 focus:outline-none focus:ring-1 focus:ring-accent-500/40"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="custom-container-payload"
+                      className="block text-[9px] uppercase tracking-wider font-bold text-surface-500 dark:text-surface-300 mb-1"
+                    >
+                      Max payload kg
+                    </label>
+                    <input
+                      id="custom-container-payload"
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={customContainer?.maxPayloadKg || ''}
+                      onChange={(e) => updateCustomContainer('maxPayloadKg', e.target.value)}
+                      placeholder="0"
+                      className="w-full bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700 rounded-lg px-2 py-1.5 text-[11px] font-mono font-bold text-surface-800 dark:text-surface-100 focus:outline-none focus:ring-1 focus:ring-accent-500/40"
+                    />
                   </div>
                 </div>
               )}
 
-              {/* Overfill / overweight warnings + multi-container suggestion */}
-              {(containerPct > 100 || payloadPct > 100) ? (
-                <div className="text-center text-[11px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 py-1.5 px-2 rounded border border-rose-200/60 dark:border-rose-500/20 shadow-sm">
-                  {containerPct > 100 && `Exceeds volume by ${overVolume.toFixed(2)} m³. `}
-                  {payloadPct > 100 && `Exceeds max payload by ${(overWeight / 1000).toFixed(2)} t. `}
-                  {containerPlan.count > 1 &&
-                    `Suggestion: ${containerPlan.count} × ${cont.label.replace(' (Usable)', '')} (limited by ${containerPlan.limitedBy}).`}
-                </div>
-              ) : containerPct > 0 && (
-                <div className="text-center text-[11px] font-bold text-surface-500 dark:text-surface-300 bg-white/60 dark:bg-surface-800/40 py-1.5 rounded border border-surface-200/60 dark:border-surface-700/40">
-                  {(cont.cbm - totals.cbm).toFixed(2)} m³ remaining
-                  {totals.grossWeight > 0 &&
-                    ` · ${((cont.maxPayloadKg - totals.grossWeight) / 1000).toFixed(2)} t payload margin`}
-                </div>
+              {!cont ? (
+                <p className="text-[11px] text-center font-semibold text-surface-500 dark:text-surface-300 bg-white/60 dark:bg-surface-800/40 py-2 px-2 rounded border border-surface-200/60 dark:border-surface-700/40">
+                  {isCustom
+                    ? 'Enter a usable volume or a max payload to see the fill against it.'
+                    : `No container selected — ${fmtCBM(totals.cbm)} m³ of loose cargo, billed as groupage.`}
+                </p>
+              ) : (
+                <>
+                  {/* Volume bar — only when the container declares a volume */}
+                  {cont.cbm > 0 && (
+                    <div>
+                      <UtilizationBar pct={containerPct} />
+                      <div className="flex justify-between mt-1.5">
+                        <span className="text-[11px] font-mono font-bold text-surface-700 dark:text-surface-300">
+                          Volume: {fmtCBM(totals.cbm)} / {cont.cbm} m³
+                        </span>
+                        <span
+                          className={`text-[11px] font-mono font-bold ${containerPct > 100
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : containerPct > 95
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : 'text-accent-600 dark:text-accent-300'
+                            }`}
+                        >
+                          {containerPct.toFixed(2)}%
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Payload bar — only meaningful once weights are entered */}
+                  {payloadCapKg > 0 && totals.grossWeight > 0 && (
+                    <div>
+                      <UtilizationBar pct={payloadPct} />
+                      <div className="flex justify-between mt-1.5">
+                        <span className="text-[11px] font-mono font-bold text-surface-700 dark:text-surface-300">
+                          Payload: {totals.grossWeight.toFixed(0)} / {payloadCapKg.toLocaleString()} kg
+                          {roadCapped && (
+                            <span className="ml-1 text-amber-600 dark:text-amber-400 font-bold">
+                              road
+                            </span>
+                          )}
+                        </span>
+                        <span
+                          className={`text-[11px] font-mono font-bold ${payloadPct > 100
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : payloadPct > 95
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : 'text-accent-600 dark:text-accent-300'
+                            }`}
+                        >
+                          {payloadPct.toFixed(2)}%
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Overfill / overweight warnings + multi-container suggestion */}
+                  {(containerPct > 100 || payloadPct > 100) ? (
+                    <div className="text-center text-[11px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 py-1.5 px-2 rounded border border-rose-200/60 dark:border-rose-500/20 shadow-sm">
+                      {containerPct > 100 && `Exceeds volume by ${overVolume.toFixed(2)} m³. `}
+                      {payloadPct > 100 &&
+                        `Exceeds ${roadCapped ? 'the road-legal payload' : 'max payload'} by ${(overWeight / 1000).toFixed(2)} t. `}
+                      {containerPlan.count > 1 &&
+                        `Suggestion: ${containerPlan.count} × ${cont.label.replace(' (Usable)', '')} (limited by ${containerPlan.limitedBy}).`}
+                    </div>
+                  ) : containerPct > 0 && (
+                    <div className="text-center text-[11px] font-bold text-surface-500 dark:text-surface-300 bg-white/60 dark:bg-surface-800/40 py-1.5 rounded border border-surface-200/60 dark:border-surface-700/40">
+                      {(cont.cbm - totals.cbm).toFixed(2)} m³ remaining
+                      {payloadCapKg > 0 && totals.grossWeight > 0 &&
+                        ` · ${((payloadCapKg - totals.grossWeight) / 1000).toFixed(2)} t payload margin`}
+                    </div>
+                  )}
+
+                  {/* When no country is chosen the ISO rating is all we have, and
+                      saying it may be unreachable is more honest than implying it
+                      is not. Once a country binds, the rules panel says so instead. */}
+                  {!cont.isCustom && !roadCapped && payloadPct > 80 && (
+                    <p className="text-[9px] leading-snug text-surface-500 dark:text-surface-400 text-center">
+                      {cont.maxPayloadKg.toLocaleString()} kg is the ISO payload rating.
+                      Pick a destination above to check it against road-legal limits.
+                    </p>
+                  )}
+                </>
               )}
             </div>
+
+            {/* Destination & carrier rules — placed between the container fill and
+                the chargeable weight because it governs both of them. */}
+            <ShipmentRulesPanel
+              freight={freight}
+              destinationCountry={destinationCountry}
+              setDestinationCountry={setDestinationCountry}
+              carrierProfile={carrierProfile}
+              setCarrierProfile={setCarrierProfile}
+              ruleOverrides={ruleOverrides}
+              updateRuleOverride={updateRuleOverride}
+              resetRuleOverrides={resetRuleOverrides}
+            />
 
             {/* Freight Mode + Chargeable Weight */}
             <div className="p-3 rounded-xl bg-surface-50 dark:bg-surface-800/60 border border-surface-200 dark:border-surface-700">
@@ -489,6 +631,11 @@ const ActiveShipment = memo(({
                   <p className="text-xs font-mono font-bold text-surface-700 dark:text-surface-300">
                     {volumetricWeight.toFixed(2)} kg
                   </p>
+                  {freight.volumetricDivisor > 0 && (
+                    <p className="text-[8px] text-surface-400 dark:text-surface-500 font-mono">
+                      ÷{freight.volumetricDivisor.toLocaleString()} cm³/kg
+                    </p>
+                  )}
                 </div>
                 <div>
                   <p className="text-[9px] text-surface-500 dark:text-surface-300 uppercase mb-0.5">
@@ -498,18 +645,36 @@ const ActiveShipment = memo(({
                     {totals.grossWeight.toFixed(2)} kg
                   </p>
                 </div>
+                {/* The billed figure, not the raw comparison: the carrier's round-up
+                    is part of the price, so hiding it understates every quote. */}
                 <div className="bg-accent-50 dark:bg-accent-900/30 rounded-lg p-1.5 border border-accent-200 dark:border-accent-700">
                   <p className="text-[9px] text-accent-600 dark:text-accent-300 uppercase mb-0.5 font-bold">
-                    Chargeable
+                    Billed
                   </p>
                   <p className="text-sm font-mono font-bold text-accent-700 dark:text-accent-300">
-                    {chargeableWeight.toFixed(2)} kg
+                    {billed.display}
                   </p>
+                  {billed.value !== chargeableWeight && freight.billingUnit === 'kg' && (
+                    <p className="text-[8px] text-accent-600/80 dark:text-accent-400/80 font-mono">
+                      from {chargeableWeight.toFixed(2)}
+                    </p>
+                  )}
+                  {freight.billingUnit === 'RT' && (
+                    <p className="text-[8px] text-accent-600/80 dark:text-accent-400/80 font-mono">
+                      revenue tons
+                    </p>
+                  )}
                 </div>
               </div>
               <p className="text-[10px] text-surface-500 dark:text-surface-300 mt-2 text-center">
-                {FREIGHT_MODES[freightMode]?.desc}
+                {freight.modeDesc}
+                {' · '}
+                <span className="font-semibold">
+                  {freight.basis === 'volumetric' ? 'volume governs' : 'weight governs'}
+                </span>
               </p>
+
+              <FreightWorkings workings={freight.workings} notes={freight.notes} />
             </div>
           </div>
         )}

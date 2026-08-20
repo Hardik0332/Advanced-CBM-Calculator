@@ -195,6 +195,29 @@ families**: ~15 explicitly researched countries, plus documented regional defaul
 EU-60t Nordic, ISO-unrestricted) that every other country maps onto — with the mapping visible and
 editable rather than hidden.
 
+### Second verification pass — 2026-08-20
+
+Re-attempted during Phase 2b implementation, with a search tool available this time. **The gaps did
+not close, for a different reason: the accessible references do not publish the figures.**
+
+| Gap | Attempted | Result |
+|---|---|---|
+| Road limits for IN · CN · BR · CA | Wikipedia *Semi-trailer truck*, *Axle load* | **Not found.** Neither page mentions any of the four. |
+| Road limit for AU | Wikipedia *Semi-trailer truck* | Found, but not usable as a container-haulage cap: road trains to 164 t, B-doubles to 62.5 t — both far above ISO, so the container rating binds anyway, exactly as in the Nordics. |
+| IATA 0.5 kg round-up | Wikipedia *Chargeable weight* (404) | **Not found.** Still paid-TACT-only. |
+| Ocean LCL 1 CBM = 1,000 kg | Wikipedia *Freight rate* | **Not found.** The page covers rate determinants but defines neither W/M, revenue tons, nor any kg-per-CBM factor. |
+
+`WebSearch` is unsupported on the current model, so only direct page fetches were possible.
+
+**How the implementation handles this.** The `[U]` figures ship as defaults but are never presented
+as authoritative: each appears in `computeFreight`'s `notes[]` as a sourcing caveat, and the
+`[why?]` disclosure in `ShipmentRulesPanel` badges every citation `[V]` or `[U]`. The four
+unrateable countries are **selectable but explicitly unrated** — `UNRESEARCHED_COUNTRIES` in
+`countryProfiles.js` resolves them to no derating plus a note saying the limit is missing and
+pointing at the GVW override. Listing them beats omitting them: a user shipping to India who finds
+no entry assumes the ISO rating is achievable, which is the exact error this phase exists to
+prevent.
+
 ---
 
 ## 7. Proposed data model

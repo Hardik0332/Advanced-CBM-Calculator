@@ -190,7 +190,8 @@ computeFreight({ items, totals, mode, container }) → {
 | Ocean FCL | gross | unchanged (correct today) |
 
 `workings[]` renders both in the UI and in the PDF, so every billed number is traceable — this is
-the "accurate details" payoff. Add `45hc` (≈76 m³ / 25 600 kg), an **LCL / no container** option,
+the "accurate details" payoff. Add `45hc` (≈76 m³ usable / 28,500 kg ISO net payload — see
+[COUNTRY_FREIGHT_RULES.md §3](COUNTRY_FREIGHT_RULES.md)), an **LCL / no container** option,
 and a **custom container** (user-entered usable CBM + max payload). Extend `CONTAINERS` entries
 with internal L/W/H, door dimensions and TEU for the summary document. Keep
 `FREIGHT_MODES[].volumetricFactor` for persisted-meta and test back-compat, but route all display

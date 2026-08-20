@@ -54,11 +54,24 @@ function App() {
     setPoNumber,
     containerType,
     setContainerType,
+    customContainer,
+    updateCustomContainer,
     freightMode,
     setFreightMode,
 
+    // Country & carrier rule profiles
+    destinationCountry,
+    setDestinationCountry,
+    carrierProfile,
+    setCarrierProfile,
+    ruleOverrides,
+    updateRuleOverride,
+    resetRuleOverrides,
+
     // Computed
     totals,
+    freight,
+    container,
     volumetricWeight,
     chargeableWeight,
     containerPct,
@@ -122,9 +135,20 @@ function App() {
             setPoNumber={setPoNumber}
             containerType={containerType}
             setContainerType={setContainerType}
+            customContainer={customContainer}
+            updateCustomContainer={updateCustomContainer}
             freightMode={freightMode}
             setFreightMode={setFreightMode}
+            destinationCountry={destinationCountry}
+            setDestinationCountry={setDestinationCountry}
+            carrierProfile={carrierProfile}
+            setCarrierProfile={setCarrierProfile}
+            ruleOverrides={ruleOverrides}
+            updateRuleOverride={updateRuleOverride}
+            resetRuleOverrides={resetRuleOverrides}
             totals={totals}
+            freight={freight}
+            container={container}
             volumetricWeight={volumetricWeight}
             chargeableWeight={chargeableWeight}
             containerPct={containerPct}

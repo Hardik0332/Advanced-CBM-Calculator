@@ -8,11 +8,13 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   calcCBM,
   convertDim,
-  CONTAINERS,
-  FREIGHT_MODES,
+  EMPTY_CUSTOM_CONTAINER,
+  isValidContainerType,
   normalizeFreightMode,
-  containersNeeded,
 } from '../utils/calculations';
+import { computeFreight } from '../utils/freight';
+import { DEFAULT_COUNTRY, isValidCountry } from '../utils/countryProfiles';
+import { DEFAULT_CARRIER, isValidCarrier } from '../utils/carrierProfiles';
 import { mergeProducts } from '../utils/deduplication';
 import { IMPORT_COLORS, IMPORT_ICONS } from '../utils/fileParser';
 import { clampInt, safeNonNegative } from '../utils/numbers';
@@ -61,13 +63,28 @@ const loadProducts = () => migrateProducts(readJSON(STORAGE_KEYS.products)).item
 /** Load + migrate persisted shipment items (older versions lack totalPcs). */
 const loadShipment = () => migrateShipment(readJSON(STORAGE_KEYS.shipment)).items;
 
-/** Load persisted shipment metadata (PO number, container, freight mode). */
+/** Load persisted shipment metadata (PO number, container, freight mode, rules). */
 const loadMeta = () => {
   const m = normalizeMeta(readJSON(STORAGE_KEYS.meta));
+  const custom = m.customContainer;
   return {
     poNumber: m.poNumber || '',
-    containerType: CONTAINERS[m.containerType] ? m.containerType : '40hc',
+    // 'none' (LCL / loose cargo) and 'custom' are valid selections now, so this
+    // guard checks the whole option set rather than only the ISO container table.
+    containerType: isValidContainerType(m.containerType) ? m.containerType : '40hc',
     freightMode: normalizeFreightMode(m.freightMode),
+    customContainer: {
+      label: typeof custom?.label === 'string' ? custom.label : '',
+      cbm: safeNonNegative(custom?.cbm),
+      maxPayloadKg: safeNonNegative(custom?.maxPayloadKg),
+    },
+    /* Rule selections default to the profiles that reproduce pre-Phase-2b
+       behaviour, so an existing shipment reloads with identical numbers. */
+    destinationCountry: isValidCountry(m.destinationCountry)
+      ? m.destinationCountry
+      : DEFAULT_COUNTRY,
+    carrierProfile: isValidCarrier(m.carrierProfile) ? m.carrierProfile : DEFAULT_CARRIER,
+    ruleOverrides: m.ruleOverrides || {},
   };
 };
 
@@ -164,7 +181,18 @@ export function useShipment() {
   }, [shipment, reportStorageError]);
 
   /* ── Shipment metadata — persisted in localStorage ── */
-  const [{ poNumber, containerType, freightMode }, setMeta] = useState(loadMeta);
+  const [
+    {
+      poNumber,
+      containerType,
+      freightMode,
+      customContainer,
+      destinationCountry,
+      carrierProfile,
+      ruleOverrides,
+    },
+    setMeta,
+  ] = useState(loadMeta);
   const setPoNumber = useCallback(
     (v) => setMeta((m) => ({ ...m, poNumber: v })),
     []
@@ -177,16 +205,75 @@ export function useShipment() {
     (v) => setMeta((m) => ({ ...m, freightMode: v })),
     []
   );
+  /** Patch one field of the user-defined container without losing the others. */
+  const updateCustomContainer = useCallback(
+    (field, value) =>
+      setMeta((m) => ({
+        ...m,
+        customContainer: {
+          ...(m.customContainer || EMPTY_CUSTOM_CONTAINER),
+          [field]: value,
+        },
+      })),
+    []
+  );
+
+  /* Destination and carrier are independent selectors on purpose — see the
+     note in freight.js. Neither derives from the other. */
+  const setDestinationCountry = useCallback(
+    (v) => setMeta((m) => ({ ...m, destinationCountry: v })),
+    []
+  );
+  const setCarrierProfile = useCallback(
+    (v) => setMeta((m) => ({ ...m, carrierProfile: v })),
+    []
+  );
+  /**
+   * Patch one rule override. Blanking a field **deletes** it rather than storing
+   * `''`: an override's whole meaning is "this value instead of the profile's", so
+   * an empty one must disappear and let resolution fall through again.
+   */
+  const updateRuleOverride = useCallback((field, value) => {
+    setMeta((m) => {
+      const next = { ...(m.ruleOverrides || {}) };
+      if (value === '' || value === null || value === undefined) delete next[field];
+      else next[field] = value;
+      return { ...m, ruleOverrides: next };
+    });
+  }, []);
+
+  /** Drop every override at once — the "reset to researched defaults" affordance. */
+  const resetRuleOverrides = useCallback(
+    () => setMeta((m) => ({ ...m, ruleOverrides: {} })),
+    []
+  );
 
   const metaTimerRef = useRef(null);
   useEffect(() => {
     clearTimeout(metaTimerRef.current);
     metaTimerRef.current = setTimeout(() => {
-      const ok = writeJSON(STORAGE_KEYS.meta, { poNumber, containerType, freightMode }).ok;
+      const ok = writeJSON(STORAGE_KEYS.meta, {
+        poNumber,
+        containerType,
+        freightMode,
+        customContainer,
+        destinationCountry,
+        carrierProfile,
+        ruleOverrides,
+      }).ok;
       if (!ok) reportStorageError();
     }, 500);
     return () => clearTimeout(metaTimerRef.current);
-  }, [poNumber, containerType, freightMode, reportStorageError]);
+  }, [
+    poNumber,
+    containerType,
+    freightMode,
+    customContainer,
+    destinationCountry,
+    carrierProfile,
+    ruleOverrides,
+    reportStorageError,
+  ]);
 
   /* ── Form updater ── */
   const updateForm = useCallback((field, value) => {
@@ -653,36 +740,68 @@ export function useShipment() {
     [shipment]
   );
 
-  const volumetricWeight = useMemo(() => {
-    const factor = FREIGHT_MODES[freightMode]?.volumetricFactor || 0;
-    return totals.cbm * factor;
-  }, [totals.cbm, freightMode]);
-
-  const chargeableWeight = useMemo(
-    () => Math.max(totals.grossWeight, volumetricWeight),
-    [totals.grossWeight, volumetricWeight]
+  /* Every freight and container figure comes from one auditable computation, so
+     the UI and the exports can never disagree. `computeFreight` measures volume
+     per piece and applies the carrier's own divisor and round-up rather than the
+     aggregate `cbm × factor` shorthand this used to use, and derates the container
+     payload to the destination's road limit when one is known. */
+  const freight = useMemo(
+    () =>
+      computeFreight({
+        items: shipment,
+        totals,
+        mode: freightMode,
+        container: containerType,
+        customContainer,
+        country: destinationCountry,
+        carrier: carrierProfile,
+        overrides: ruleOverrides,
+      }),
+    [
+      shipment,
+      totals,
+      freightMode,
+      containerType,
+      customContainer,
+      destinationCountry,
+      carrierProfile,
+      ruleOverrides,
+    ]
   );
+
+  /* The resolved container, or null for LCL / loose cargo and for a custom entry
+     with nothing in it yet. Consumers must handle null. */
+  const container = freight.container;
+
+  /* Declared before the utilization memos below, which read the governing payload
+     cap off it. */
+  const containerPlan = freight.containerPlan;
+
+  /* Kept as named values because they are what the UI labels; both now derive
+     from `freight` instead of being computed a second, divergent way. */
+  const volumetricWeight = freight.volumetricKg;
+  const chargeableWeight = freight.chargeableKg;
 
   /* Container utilization — deliberately NOT capped at 100 so an overfilled
      container is impossible to miss. */
   const containerPct = useMemo(() => {
-    const cap = CONTAINERS[containerType]?.cbm;
+    const cap = container?.cbm;
     if (!cap) return 0;
     return (totals.cbm / cap) * 100;
-  }, [totals.cbm, containerType]);
+  }, [totals.cbm, container]);
 
   /* Payload utilization — dense cargo hits the weight limit long before the
-     container is volumetrically full. */
+     container is volumetrically full.
+
+     Measured against the *governing* cap, not the ISO rating: on a US road lane a
+     40' HC is capped ~5 t below its plate, and a bar that fills to 80% against an
+     unreachable number is worse than no bar at all. `payloadCapKg` is the ISO
+     figure whenever no road limit binds, so this is unchanged by default. */
   const payloadPct = useMemo(() => {
-    const max = CONTAINERS[containerType]?.maxPayloadKg;
+    const max = containerPlan?.payloadCapKg || container?.maxPayloadKg;
     if (!max) return 0;
     return (totals.grossWeight / max) * 100;
-  }, [totals.grossWeight, containerType]);
-
-  const containerPlan = useMemo(
-    () => containersNeeded(totals, containerType),
-    [totals, containerType]
-  );
+  }, [totals.grossWeight, container, containerPlan]);
 
   const previewCBM = useMemo(() => {
     const hasDims =
@@ -736,11 +855,24 @@ export function useShipment() {
     setPoNumber,
     containerType,
     setContainerType,
+    customContainer,
+    updateCustomContainer,
     freightMode,
     setFreightMode,
 
+    // Country & carrier rule profiles
+    destinationCountry,
+    setDestinationCountry,
+    carrierProfile,
+    setCarrierProfile,
+    ruleOverrides,
+    updateRuleOverride,
+    resetRuleOverrides,
+
     // Computed
     totals,
+    freight,
+    container,
     volumetricWeight,
     chargeableWeight,
     containerPct,

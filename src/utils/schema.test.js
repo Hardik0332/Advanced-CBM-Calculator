@@ -4,6 +4,7 @@ import {
   normalizeProduct,
   normalizeShipmentItem,
   normalizeMeta,
+  normalizeRuleOverrides,
   unwrap,
   wrap,
   migrateProducts,
@@ -141,6 +142,83 @@ describe('normalizeMeta', () => {
   });
   it('drops a non-string poNumber safely', () => {
     expect(normalizeMeta({ poNumber: { nested: true } }).poNumber).toBe('');
+  });
+  it('coerces a hand-edited custom container instead of letting NaN through', () => {
+    const m = normalizeMeta({
+      containerType: 'custom',
+      customContainer: { label: 42, cbm: 'lots', maxPayloadKg: '21,000' },
+    });
+    expect(m.customContainer.label).toBe('42');
+    expect(m.customContainer.cbm).toBe(0);
+    expect(m.customContainer.maxPayloadKg).toBe(21000);
+  });
+  it('reports no custom container when the key is absent or junk', () => {
+    expect(normalizeMeta({ poNumber: 'x' }).customContainer).toBeNull();
+    expect(normalizeMeta({ customContainer: 'nope' }).customContainer).toBeNull();
+  });
+  it('keeps the rule-profile selections as plain strings', () => {
+    const m = normalizeMeta({ destinationCountry: 'US', carrierProfile: 'DHL_EXPRESS' });
+    expect(m.destinationCountry).toBe('US');
+    expect(m.carrierProfile).toBe('DHL_EXPRESS');
+  });
+  it('reports no rule overrides when the key is absent or junk', () => {
+    expect(normalizeMeta({ poNumber: 'x' }).ruleOverrides).toBeNull();
+    expect(normalizeMeta({ ruleOverrides: 'nope' }).ruleOverrides).toBeNull();
+  });
+});
+
+describe('normalizeRuleOverrides', () => {
+  it('keeps a numeric override', () => {
+    expect(normalizeRuleOverrides({ divisorCm3PerKg: 4500 })).toEqual({
+      divisorCm3PerKg: 4500,
+    });
+  });
+
+  it('parses a spreadsheet-style string', () => {
+    expect(normalizeRuleOverrides({ roadMaxGvwKg: '36,287' })).toEqual({
+      roadMaxGvwKg: 36287,
+    });
+  });
+
+  /* The distinction the whole record depends on: an empty field must fall through
+     to the profile, while a typed 0 is a real instruction. Coercing blanks to 0
+     would turn every untouched field into an override capping payload at nothing. */
+  it('drops blank fields instead of coercing them to zero', () => {
+    const out = normalizeRuleOverrides({
+      divisorCm3PerKg: '',
+      roundingStepKg: null,
+      tractorKg: undefined,
+    });
+    expect(out).toEqual({});
+  });
+
+  it('keeps a deliberate zero', () => {
+    expect(normalizeRuleOverrides({ chassisKg: 0 })).toEqual({ chassisKg: 0 });
+  });
+
+  it('drops an unparseable value rather than storing NaN', () => {
+    expect(normalizeRuleOverrides({ payloadKg: 'heavy' })).toEqual({});
+    expect(normalizeRuleOverrides({ tareKg: {} })).toEqual({});
+  });
+
+  it('ignores fields that are not rule overrides', () => {
+    expect(normalizeRuleOverrides({ nonsense: 5, tareKg: 4000 })).toEqual({ tareKg: 4000 });
+  });
+
+  it('clamps an absurd entry instead of letting it poison the freight maths', () => {
+    const out = normalizeRuleOverrides({ roadMaxGvwKg: 1e30, measurementTonM3: 1e30 });
+    expect(out.roadMaxGvwKg).toBe(1e9);
+    expect(out.measurementTonM3).toBe(1e4);
+  });
+
+  it('forces a negative entry positive — no weight or divisor is negative', () => {
+    expect(normalizeRuleOverrides({ tractorKg: -7711 })).toEqual({ tractorKg: 7711 });
+  });
+
+  it('returns an empty object for junk input', () => {
+    expect(normalizeRuleOverrides(null)).toEqual({});
+    expect(normalizeRuleOverrides('nope')).toEqual({});
+    expect(normalizeRuleOverrides([])).toEqual({});
   });
 });
 

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { exportFileName, buildRows, buildSummaryPairs } from './exporting';
+import {
+  exportFileName,
+  buildRows,
+  buildSummaryPairs,
+  buildWorkingsRows,
+} from './exporting';
 
 /* A record from an older build: no weights, no CBM, no totalPcs. Passing one of
    these through the exporters used to throw "toFixed is not a function". */
@@ -144,9 +149,48 @@ describe('buildSummaryPairs — Excel/CSV parity', () => {
     const pairs = buildSummaryPairs(totals, '40hc', 'air');
     const map = Object.fromEntries(pairs);
     expect(map['Freight Mode']).toBe('Air');
-    // Air: 0.18 m³ × 167 kg/m³ = 30.06 kg volumetric, above the 18 kg gross.
-    expect(map['Volumetric Wt (kg)']).toBeCloseTo(30.06);
-    expect(map['Chargeable Wt (kg)']).toBeCloseTo(30.06);
+    /* Air is now billed the way an airline bills it: volume ÷ 6,000 cm³/kg
+       (= 166.667 kg/m³), not the rounded 167 kg/m³ trade shorthand. 0.18 m³ →
+       180,000 cm³ ÷ 6,000 = 30.00 kg, so this is deliberately 0.06 kg below the
+       old figure. */
+    expect(map['Volumetric Wt (kg)']).toBeCloseTo(30);
+    expect(map['Chargeable Wt (kg)']).toBeCloseTo(30);
+    expect(map['Volumetric Divisor (cm³/kg)']).toBe(6000);
+  });
+
+  it('reports the billed weight after the carrier round-up, not just the raw figure', () => {
+    // 0.1836 m³ → 183,600 cm³ ÷ 6,000 = 30.6 kg → billed 31.0 kg (next 0.5 kg).
+    const map = Object.fromEntries(
+      buildSummaryPairs({ ...totals, cbm: 0.1836 }, '40hc', 'air')
+    );
+    expect(map['Chargeable Wt (kg)']).toBeCloseTo(30.6);
+    expect(map['Billed Chargeable Wt (kg)']).toBe(31);
+    expect(map['Rounding Step (kg)']).toBe(0.5);
+  });
+
+  it('measures per piece when the items are supplied', () => {
+    const item = {
+      ...goodItem,
+      length: 51,
+      width: 40,
+      height: 30,
+      quantity: 3,
+      cbmPerShipper: 0.0612,
+    };
+    const map = Object.fromEntries(
+      buildSummaryPairs({ ...totals, cbm: 0.1836 }, '40hc', 'courier', { items: [item] })
+    );
+    // 183,600 cm³ ÷ 5,000 = 36.72 kg → billed 37 kg (next 1.0 kg).
+    expect(map['Volumetric Wt (kg)']).toBeCloseTo(36.72);
+    expect(map['Billed Chargeable Wt (kg)']).toBe(37);
+  });
+
+  it('quotes revenue tons for ocean LCL', () => {
+    const map = Object.fromEntries(
+      buildSummaryPairs({ cbm: 12.3456, grossWeight: 8500 }, 'none', 'ocean_lcl')
+    );
+    expect(map['Revenue Tons (RT)']).toBeCloseTo(12.3456);
+    expect(map['Billed Revenue Tons (RT)']).toBe(12.35);
   });
 
   it('uses gross weight when it exceeds volumetric', () => {
@@ -154,6 +198,7 @@ describe('buildSummaryPairs — Excel/CSV parity', () => {
       buildSummaryPairs({ ...totals, grossWeight: 500 }, '40hc', 'air')
     );
     expect(map['Chargeable Wt (kg)']).toBeCloseTo(500);
+    expect(map['Chargeable Basis']).toBe('Gross weight');
   });
 
   it('has no volumetric weight for Ocean FCL', () => {
@@ -167,6 +212,7 @@ describe('buildSummaryPairs — Excel/CSV parity', () => {
     expect(map.Container).toContain('High Cube');
     expect(map['Containers Required']).toBe(1);
     expect(map['Limited By']).toBe('volume');
+    expect(typeof map['Remaining Volume (m³)']).toBe('number');
   });
 
   it('flags a weight-limited load', () => {
@@ -177,10 +223,25 @@ describe('buildSummaryPairs — Excel/CSV parity', () => {
     expect(map['Limited By']).toBe('weight');
   });
 
-  it('omits container rows for an unknown container', () => {
-    const map = Object.fromEntries(buildSummaryPairs(totals, 'nope', 'air'));
-    expect(map.Container).toBeUndefined();
-    expect(map['Freight Mode']).toBe('Air');
+  it('says "no container" rather than silently omitting the row', () => {
+    // An unknown key and an explicit LCL selection both mean "nothing to plan
+    // against". Leaving the row out entirely made the export look truncated.
+    for (const key of ['nope', 'none']) {
+      const map = Object.fromEntries(buildSummaryPairs(totals, key, 'air'));
+      expect(map.Container).toBe('None (LCL / loose cargo)');
+      expect(map['Containers Required']).toBeUndefined();
+      expect(map['Freight Mode']).toBe('Air');
+    }
+  });
+
+  it('honours a user-entered custom container', () => {
+    const map = Object.fromEntries(
+      buildSummaryPairs({ cbm: 45, grossWeight: 1000 }, 'custom', 'ocean_fcl', {
+        customContainer: { label: 'Rail wagon', cbm: 20, maxPayloadKg: 30000 },
+      })
+    );
+    expect(map.Container).toBe('Rail wagon');
+    expect(map['Containers Required']).toBe(3);
   });
 
   it('survives null totals', () => {
@@ -192,5 +253,127 @@ describe('buildSummaryPairs — Excel/CSV parity', () => {
     const map = Object.fromEntries(buildSummaryPairs(totals, '40hc', 'air'));
     expect(typeof map['Volume Utilisation (%)']).toBe('number');
     expect(typeof map['Payload Utilisation (%)']).toBe('number');
+  });
+});
+
+describe('buildWorkingsRows — the derivation travels with the numbers', () => {
+  it('emits a header row and one row per derivation step', () => {
+    const rows = buildWorkingsRows({ ...totals, cbm: 0.1836 }, '40hc', 'air');
+    expect(rows[0]).toEqual(['Step', 'How it is derived', 'Value', 'Unit']);
+    expect(rows.length).toBeGreaterThan(5);
+  });
+
+  it('carries the billed weight and the round-up that produced it', () => {
+    const rows = buildWorkingsRows({ ...totals, cbm: 0.1836 }, '40hc', 'air');
+    const billed = rows.find((r) => r[0] === 'Billed chargeable weight');
+    expect(billed[1]).toContain('next 0.5 kg');
+    expect(billed[2]).toBe(31);
+    expect(billed[3]).toBe('kg');
+  });
+
+  it('writes raw numbers, not formatted strings — the spreadsheet must stay numeric', () => {
+    const rows = buildWorkingsRows({ ...totals, cbm: 0.1836 }, '40hc', 'air');
+    for (const row of rows.slice(1)) {
+      if (row[0] === 'Note') continue;
+      expect(typeof row[2]).toBe('number');
+    }
+  });
+
+  it('appends the sourcing caveats as notes', () => {
+    const rows = buildWorkingsRows(totals, '40hc', 'air');
+    expect(rows.some((r) => r[0] === 'Note')).toBe(true);
+  });
+
+  it('survives null totals', () => {
+    expect(() => buildWorkingsRows(null, 'none', 'ocean_fcl')).not.toThrow();
+  });
+});
+
+describe('exports carry the resolved country & carrier rules', () => {
+  /** 26 t in a 40' HC: legal on the ISO rating, overweight on a US highway. */
+  const heavy = { cbm: 40, grossWeight: 26000, netWeight: 24000, shippers: 100, totalPcs: 1000 };
+  const pairMap = (pairs) => Object.fromEntries(pairs);
+
+  it('names the rule profiles that were applied', () => {
+    const map = pairMap(
+      buildSummaryPairs(heavy, '40hc', 'courier', {
+        country: 'US',
+        carrier: 'DHL_EXPRESS_AE',
+      })
+    );
+    expect(map['Destination Rules']).toBe('United States');
+    expect(map['Carrier Rules']).toBe('DHL Express — shipping from the UAE');
+    expect(map['Divisor Source']).toBe('carrier');
+    expect(map['Volumetric Divisor (cm³/kg)']).toBe(4000);
+  });
+
+  it('reports the road cap AND the ISO rating it overruled, never just one', () => {
+    const map = pairMap(buildSummaryPairs(heavy, '40hc', 'ocean_fcl', { country: 'US' }));
+    expect(map['Payload Cap (kg)']).toBe(21466);
+    expect(map['Payload Cap Source']).toBe('road');
+    expect(map['ISO Payload Rating (kg)']).toBe(26500);
+    expect(map['Payload Lost to Road Law (kg)']).toBe(5034);
+    expect(map['Limited By']).toBe('road');
+    expect(map['Containers Required']).toBe(2);
+  });
+
+  it('omits the derate rows when the ISO rating governs', () => {
+    const map = pairMap(buildSummaryPairs(heavy, '40hc', 'ocean_fcl', { country: 'EU_44T' }));
+    expect(map['Payload Cap Source']).toBe('iso');
+    expect(map['ISO Payload Rating (kg)']).toBeUndefined();
+    expect(map['Limited By']).toBe('volume');
+  });
+
+  it('quotes the measurement ton on an LCL shipment', () => {
+    const map = pairMap(buildSummaryPairs(heavy, 'none', 'ocean_lcl', { country: 'US' }));
+    expect(map['Measurement Ton (m³/RT)']).toBe(1.133);
+  });
+
+  it('keeps every rule figure numeric so the spreadsheet stays a spreadsheet', () => {
+    const map = pairMap(buildSummaryPairs(heavy, '40hc', 'ocean_fcl', { country: 'US' }));
+    for (const key of [
+      'Payload Cap (kg)',
+      'ISO Payload Rating (kg)',
+      'Payload Lost to Road Law (kg)',
+    ]) {
+      expect(typeof map[key], key).toBe('number');
+    }
+  });
+
+  it('prints the governing-limit derivation in the workings block', () => {
+    const rows = buildWorkingsRows(heavy, '40hc', 'ocean_fcl', { country: 'US' });
+    const road = rows.find((r) => r[0] === 'Road-legal payload');
+    expect(road[1]).toContain('36287 kg GVW');
+    expect(road[2]).toBe(21466);
+    expect(rows.find((r) => r[0] === 'Payload lost to road law')[2]).toBe(5034);
+    expect(rows.some((r) => r[0] === 'Note' && r[1].includes('Payload capped at'))).toBe(true);
+  });
+
+  it('honours an explicit override over both profiles', () => {
+    const map = pairMap(
+      buildSummaryPairs(heavy, '40hc', 'courier', {
+        country: 'US',
+        carrier: 'DHL_EXPRESS_AE',
+        overrides: { payloadKg: 26000, divisorCm3PerKg: 5500 },
+      })
+    );
+    expect(map['Payload Cap Source']).toBe('override');
+    expect(map['Volumetric Divisor (cm³/kg)']).toBe(5500);
+    expect(map['Divisor Source']).toBe('override');
+    expect(map['Containers Required']).toBe(1);
+  });
+
+  it('reproduces the pre-Phase-2b output when no rules are passed', () => {
+    const withDefaults = buildSummaryPairs(heavy, '40hc', 'ocean_fcl', {
+      country: 'DEFAULT',
+      carrier: 'DEFAULT',
+      overrides: {},
+    });
+    const without = buildSummaryPairs(heavy, '40hc', 'ocean_fcl');
+    expect(withDefaults).toEqual(without);
+
+    const map = pairMap(without);
+    expect(map['Payload Cap (kg)']).toBe(26500);
+    expect(map['Limited By']).toBe('volume');
   });
 });

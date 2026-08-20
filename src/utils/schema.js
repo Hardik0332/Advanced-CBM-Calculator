@@ -41,6 +41,48 @@ const weight = (v) => Math.min(safeNonNegative(v, 0), MAX_WEIGHT);
 
 const unit = (v) => (VALID_UNITS.includes(v) ? v : 'cm');
 
+/**
+ * Every field a user may override on the country/carrier rule profiles, with the
+ * cap that keeps an absurd entry from poisoning the freight calculation.
+ */
+const RULE_OVERRIDE_CAPS = {
+  divisorCm3PerKg: 1e7,
+  roundingStepKg: 1e4,
+  payloadKg: MAX_WEIGHT,
+  roadMaxGvwKg: MAX_WEIGHT,
+  tractorKg: MAX_WEIGHT,
+  chassisKg: MAX_WEIGHT,
+  tareKg: MAX_WEIGHT,
+  measurementTonM3: 1e4,
+};
+
+/**
+ * Normalise the rule-override record.
+ *
+ * The distinction that matters here: **blank is not zero.** An empty field means
+ * "fall through to the profile", while a typed 0 is a real instruction — "no
+ * chassis", or "no volumetric basis at all". Coercing blanks to 0 the way the
+ * numeric helpers above do would turn every untouched field into an override and
+ * silently cap payloads at nothing. So blanks are preserved as `''` and only
+ * genuinely numeric entries are coerced.
+ *
+ * @param {object} raw
+ * @returns {object}
+ */
+export const normalizeRuleOverrides = (raw) => {
+  const out = {};
+  if (!isPlainObject(raw)) return out;
+
+  for (const [field, cap] of Object.entries(RULE_OVERRIDE_CAPS)) {
+    const v = raw[field];
+    if (v === '' || v === null || v === undefined) continue;
+    const n = safeNonNegative(v, NaN);
+    if (!Number.isFinite(n)) continue;
+    out[field] = Math.min(n, cap);
+  }
+  return out;
+};
+
 let _idCounter = 0;
 const genId = (prefix) =>
   `${prefix}-${Date.now()}-${++_idCounter}-${Math.random().toString(36).slice(2, 7)}`;
@@ -111,9 +153,12 @@ export const normalizeShipmentItem = (raw, index = 0) => {
 };
 
 /**
- * Normalise shipment metadata (PO number, container, freight mode).
- * `normalizeFreightMode` and the CONTAINERS check stay in calculations.js — this
- * only guarantees types, and callers apply their own domain validation.
+ * Normalise shipment metadata (PO number, container, freight mode, custom
+ * container capacity, destination/carrier rule selections and their overrides).
+ *
+ * `normalizeFreightMode` and the container-selection check stay in
+ * calculations.js — this only guarantees types, and callers apply their own
+ * domain validation.
  *
  * @param {*} raw
  * @returns {object}
@@ -125,6 +170,27 @@ export const normalizeMeta = (raw) => {
     poNumber: str(raw.poNumber),
     containerType: str(raw.containerType),
     freightMode: str(raw.freightMode),
+    /* A user-entered container capacity. Coerced here rather than at the point of
+       use so a hand-edited `{"cbm": "lots"}` cannot reach the container planner
+       and produce NaN containers. */
+    customContainer: isPlainObject(raw.customContainer)
+      ? {
+          label: str(raw.customContainer.label),
+          cbm: Math.min(safeNonNegative(raw.customContainer.cbm), MAX_DIMENSION),
+          maxPayloadKg: weight(raw.customContainer.maxPayloadKg),
+        }
+      : null,
+    /* Rule-profile selections. Kept as plain strings; `countryProfiles.js` and
+       `carrierProfiles.js` own the "is this a key I know?" question and fall back
+       to their DEFAULT profiles, which reproduce pre-Phase-2b behaviour. */
+    destinationCountry: str(raw.destinationCountry),
+    carrierProfile: str(raw.carrierProfile),
+    /* Explicit rule overrides — the highest-priority input to every resolution.
+       `''` is preserved as "not overridden", so this must NOT coerce blanks to 0:
+       a 0 GVW would silently mean "this load cannot legally move". */
+    ruleOverrides: isPlainObject(raw.ruleOverrides)
+      ? normalizeRuleOverrides(raw.ruleOverrides)
+      : null,
   };
 };
 

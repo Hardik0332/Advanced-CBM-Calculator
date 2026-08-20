@@ -6,6 +6,12 @@ import {
   calcCBM,
   fmtCBM,
   CONTAINERS,
+  CONTAINER_OPTIONS,
+  NO_CONTAINER,
+  CUSTOM_CONTAINER,
+  isValidContainerType,
+  resolveContainer,
+  planContainers,
   FREIGHT_MODES,
   normalizeFreightMode,
   containersNeeded,
@@ -92,6 +98,120 @@ describe('CONTAINERS', () => {
       expect(c.label).toBeTruthy();
     }
   });
+
+  it('includes the 45 ft high cube', () => {
+    expect(CONTAINERS['45hc'].cbm).toBe(76);
+    expect(CONTAINERS['45hc'].maxPayloadKg).toBe(28500);
+  });
+
+  it('usable volume stays below the geometric volume — stowage is never 100%', () => {
+    for (const c of Object.values(CONTAINERS)) {
+      expect(c.cbm).toBeLessThan(c.geometricCbm);
+      expect(c.cbm / c.geometricCbm).toBeGreaterThan(0.8);
+    }
+  });
+
+  it('payload plus tare stays within the max gross rating, to within the tare estimate', () => {
+    // ISO does not fix tare — it varies with the individual box's construction —
+    // and the payloads here are the app's rounded planning figures (40' std is
+    // 26,700 against an exact ISO net load of 26,680). So this is a sanity check
+    // on the order of magnitude, not an exact identity.
+    for (const c of Object.values(CONTAINERS)) {
+      expect(c.maxPayloadKg + c.tareKg).toBeLessThanOrEqual(c.maxGrossKg * 1.005);
+      expect(c.maxPayloadKg + c.tareKg).toBeGreaterThan(c.maxGrossKg * 0.95);
+    }
+  });
+
+  it('carries internal, door and TEU metadata for shipping documents', () => {
+    for (const c of Object.values(CONTAINERS)) {
+      expect(c.internalCm.l).toBeGreaterThan(0);
+      expect(c.doorCm.w).toBeGreaterThan(0);
+      expect(c.teu).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('container selection', () => {
+  it('offers every ISO container plus custom and none', () => {
+    expect(CONTAINER_OPTIONS).toContain('20ft');
+    expect(CONTAINER_OPTIONS).toContain('45hc');
+    expect(CONTAINER_OPTIONS).toContain(CUSTOM_CONTAINER);
+    expect(CONTAINER_OPTIONS).toContain(NO_CONTAINER);
+  });
+
+  it('validates selections', () => {
+    expect(isValidContainerType('40hc')).toBe(true);
+    expect(isValidContainerType(NO_CONTAINER)).toBe(true);
+    expect(isValidContainerType(CUSTOM_CONTAINER)).toBe(true);
+    expect(isValidContainerType('rocket')).toBe(false);
+    expect(isValidContainerType(undefined)).toBe(false);
+  });
+});
+
+describe('resolveContainer', () => {
+  it('resolves an ISO key to its capacity', () => {
+    const c = resolveContainer('40hc');
+    expect(c.key).toBe('40hc');
+    expect(c.cbm).toBe(68);
+  });
+
+  it('returns null for "no container" — LCL has nothing to plan against', () => {
+    expect(resolveContainer(NO_CONTAINER)).toBeNull();
+  });
+
+  it('returns null for an unknown key', () => {
+    expect(resolveContainer('rocket')).toBeNull();
+    expect(resolveContainer(undefined)).toBeNull();
+  });
+
+  it('builds a custom container from user input', () => {
+    const c = resolveContainer(CUSTOM_CONTAINER, { label: ' Reefer ', cbm: '25.5', maxPayloadKg: '21,000' });
+    expect(c.label).toBe('Reefer');
+    expect(c.cbm).toBeCloseTo(25.5);
+    expect(c.maxPayloadKg).toBe(21000);
+    expect(c.isCustom).toBe(true);
+  });
+
+  it('names an unlabelled custom container', () => {
+    expect(resolveContainer(CUSTOM_CONTAINER, { cbm: 10 }).label).toBe('Custom container');
+  });
+
+  it('treats a blank custom container as no container', () => {
+    expect(resolveContainer(CUSTOM_CONTAINER, { cbm: 0, maxPayloadKg: 0 })).toBeNull();
+    expect(resolveContainer(CUSTOM_CONTAINER, null)).toBeNull();
+  });
+});
+
+describe('planContainers', () => {
+  it('reports "not applicable" for loose cargo instead of inventing one container', () => {
+    const plan = planContainers({ cbm: 12, grossWeight: 3000 }, null);
+    expect(plan.applicable).toBe(false);
+    expect(plan.count).toBe(0);
+    expect(plan.limitedBy).toBeNull();
+  });
+
+  it('computes fill and margins across the whole plan', () => {
+    const plan = planContainers({ cbm: 70, grossWeight: 5000 }, resolveContainer('40hc'));
+    expect(plan.count).toBe(2);
+    expect(plan.capacityCbm).toBe(136);
+    expect(plan.volumeFillPct).toBeCloseTo((70 / 136) * 100);
+    expect(plan.remainingCbm).toBeCloseTo(66);
+    expect(plan.perContainerCbm).toBeCloseTo(35);
+    expect(plan.overCbm).toBe(0);
+  });
+
+  it('reports the overflow against a single container', () => {
+    const plan = planContainers({ cbm: 70, grossWeight: 5000 }, { cbm: 68, maxPayloadKg: 0 });
+    expect(plan.byWeight).toBe(0);
+    expect(plan.count).toBe(2);
+  });
+
+  it('ignores a capacity axis of zero rather than dividing by it', () => {
+    const plan = planContainers({ cbm: 12, grossWeight: 3000 }, { cbm: 0, maxPayloadKg: 25000 });
+    expect(plan.byVolume).toBe(0);
+    expect(plan.count).toBe(1);
+    expect(Number.isFinite(plan.volumeFillPct)).toBe(true);
+  });
 });
 
 describe('FREIGHT_MODES', () => {
@@ -144,5 +264,18 @@ describe('containersNeeded', () => {
   it('handles empty shipment', () => {
     const plan = containersNeeded({ cbm: 0, grossWeight: 0 }, '20ft');
     expect(plan.count).toBe(1);
+  });
+
+  it('accepts "none" as a first-class selection', () => {
+    const plan = containersNeeded({ cbm: 12, grossWeight: 3000 }, 'none');
+    expect(plan.applicable).toBe(false);
+    expect(plan.count).toBe(0);
+  });
+
+  it('accepts a custom container passed through options', () => {
+    const plan = containersNeeded({ cbm: 45, grossWeight: 1000 }, 'custom', {
+      customContainer: { cbm: 20, maxPayloadKg: 30000 },
+    });
+    expect(plan.count).toBe(3);
   });
 });

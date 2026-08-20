@@ -9,12 +9,8 @@ import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import {
-  CONTAINERS,
-  FREIGHT_MODES,
-  fmtCBM,
-  containersNeeded,
-} from './calculations';
+import { fmtCBM } from './calculations';
+import { computeFreight, billedFigure } from './freight';
 import { safeNum, safeNonNegative, clampInt, trimFloat } from './numbers';
 
 /** Round only to kill float noise (12 significant-ish decimals), not precision. */
@@ -110,37 +106,132 @@ export const buildRows = (shipment, totals) => {
 };
 
 /**
+ * One `computeFreight` call shape, shared by every exporter.
+ *
+ * Centralised deliberately: the Excel summary, the CSV summary, the workings block
+ * and the PDF each need the same freight result, and three of them silently
+ * omitting the country/carrier rules would put a different chargeable weight on
+ * each document. Adding an argument here reaches all of them at once.
+ *
+ * @param {object} totals
+ * @param {string} containerType
+ * @param {string} freightMode
+ * @param {{items?: Array, customContainer?: object, country?: string,
+ *          carrier?: string, overrides?: object}} [opts]
+ * @returns {object} See `computeFreight`.
+ */
+const freightFor = (totals, containerType, freightMode, opts = {}) =>
+  computeFreight({
+    items: opts?.items ?? null,
+    totals,
+    mode: freightMode,
+    container: containerType,
+    customContainer: opts?.customContainer ?? null,
+    country: opts?.country,
+    carrier: opts?.carrier,
+    overrides: opts?.overrides ?? {},
+  });
+
+/**
  * Freight / container summary as label-value pairs.
  *
  * Shared by Excel and CSV so the two exports finally agree — `exportCSV` used to
  * omit this block entirely despite the comment claiming column parity.
+ *
+ * Every figure comes from `computeFreight`, the same call the UI renders, so an
+ * exported chargeable weight can never drift from the one on screen. Pass the
+ * shipment items in `opts` to get per-piece volumetric measurement; without them
+ * the aggregate CBM is used instead, which is a slightly coarser answer.
+ *
+ * @param {object} totals
+ * @param {string} containerType
+ * @param {string} freightMode
+ * @param {{items?: Array, customContainer?: object, country?: string,
+ *          carrier?: string, overrides?: object}} [opts]
+ * @returns {Array<[string, string|number]>}
  */
-export const buildSummaryPairs = (totals, containerType, freightMode) => {
-  const mode = FREIGHT_MODES[freightMode];
-  const cont = CONTAINERS[containerType];
-  const cbm = safeNonNegative(totals?.cbm);
-  const grossWeight = safeNonNegative(totals?.grossWeight);
-  const volumetric = cbm * (mode?.volumetricFactor || 0);
-  const chargeable = Math.max(grossWeight, volumetric);
+export const buildSummaryPairs = (totals, containerType, freightMode, opts = {}) => {
+  const f = freightFor(totals, containerType, freightMode, opts);
 
   const pairs = [
-    ['Freight Mode', mode?.label || String(freightMode ?? '')],
-    ['Volumetric Wt (kg)', raw(volumetric)],
-    ['Chargeable Wt (kg)', raw(chargeable)],
+    ['Freight Mode', f.modeLabel],
+    ['Chargeable Basis', f.basis === 'volumetric' ? 'Volumetric / volume' : 'Gross weight'],
+    ['Volumetric Divisor (cm³/kg)', f.volumetricDivisor],
+    ['Volumetric Wt (kg)', raw(f.volumetricKg)],
+    ['Chargeable Wt (kg)', raw(f.chargeableKg)],
+    ['Billed Chargeable Wt (kg)', raw(f.chargeableBilled)],
+    ['Rounding Step (kg)', f.roundingStepKg],
   ];
 
-  if (cont) {
-    const plan = containersNeeded({ cbm, grossWeight }, containerType);
+  /* Rule provenance travels with the numbers: a document quoting a 4,000 divisor
+     without saying it came from a DHL-UAE tariff is not auditable. */
+  pairs.push(
+    ['Destination Rules', f.countryLabel],
+    ['Carrier Rules', f.carrierLabel],
+    ['Divisor Source', f.tariff.divisorSource]
+  );
+
+  if (f.revenueTons !== null) {
     pairs.push(
-      ['Container', cont.label],
-      ['Volume Utilisation (%)', raw((cbm / cont.cbm) * 100)],
-      ['Payload Utilisation (%)', raw((grossWeight / cont.maxPayloadKg) * 100)],
-      ['Containers Required', plan.count],
-      ['Limited By', plan.limitedBy]
+      ['Measurement Ton (m³/RT)', raw(f.measurementTonM3)],
+      ['Revenue Tons (RT)', raw(f.revenueTons)],
+      ['Billed Revenue Tons (RT)', raw(f.revenueTonsBilled)]
     );
   }
 
+  const plan = f.containerPlan;
+  if (plan.applicable) {
+    pairs.push(
+      ['Container', plan.container.label],
+      ['Volume Utilisation (%)', raw(plan.volumeFillPct)],
+      ['Payload Utilisation (%)', raw(plan.payloadFillPct)],
+      ['Containers Required', plan.count],
+      ['Limited By', plan.limitedBy],
+      ['Remaining Volume (m³)', raw(plan.remainingCbm)],
+      ['Remaining Payload (kg)', raw(plan.remainingPayloadKg)],
+      ['Payload Cap (kg)', raw(plan.payloadCapKg)],
+      ['Payload Cap Source', plan.payloadCapSource]
+    );
+    /* Both figures, never just the smaller one — the reader needs to see that the
+       ISO rating was considered and overruled, and by how much. */
+    if (plan.payloadCapSource === 'road') {
+      pairs.push(
+        ['ISO Payload Rating (kg)', raw(plan.isoPayloadKg)],
+        ['Payload Lost to Road Law (kg)', raw(plan.payloadDerateKg)]
+      );
+    }
+  } else {
+    pairs.push(['Container', 'None (LCL / loose cargo)']);
+  }
+
   return pairs;
+};
+
+/**
+ * The `workings[]` derivation as spreadsheet rows.
+ *
+ * This is the Phase 2 payoff in export form: every billed number is accompanied
+ * by the expression that produced it, so a customer or auditor can re-derive it
+ * without access to the app.
+ *
+ * @param {object} totals
+ * @param {string} containerType
+ * @param {string} freightMode
+ * @param {{items?: Array, customContainer?: object, country?: string,
+ *          carrier?: string, overrides?: object}} [opts]
+ * @returns {Array<Array<string|number>>} Header row followed by one row per step.
+ */
+export const buildWorkingsRows = (totals, containerType, freightMode, opts = {}) => {
+  const f = freightFor(totals, containerType, freightMode, opts);
+
+  const rows = [['Step', 'How it is derived', 'Value', 'Unit']];
+  for (const w of f.workings) {
+    rows.push([w.label, w.expression, raw(w.value), w.unit]);
+  }
+  for (const note of f.notes) {
+    rows.push(['Note', note, '', '']);
+  }
+  return rows;
 };
 
 /**
@@ -148,10 +239,21 @@ export const buildSummaryPairs = (totals, containerType, freightMode) => {
  * @param {Array} shipment - Array of shipment items.
  * @param {object} totals - Computed totals object.
  * @param {string} poNumber - PO / reference number.
- * @param {string} containerType - Container type key (e.g. '40hc').
+ * @param {string} containerType - Container selection key ('40hc', 'custom', 'none').
  * @param {string} freightMode - Key into FREIGHT_MODES.
+ * @param {{customContainer?: object, country?: string, carrier?: string,
+ *          overrides?: object}} [opts] - User-entered container capacity plus the
+ *   destination/carrier rule selections, so the document quotes the same
+ *   chargeable weight and payload cap the user saw on screen.
  */
-export const exportExcel = (shipment, totals, poNumber, containerType, freightMode) => {
+export const exportExcel = (
+  shipment,
+  totals,
+  poNumber,
+  containerType,
+  freightMode,
+  opts = {}
+) => {
   const rows = buildRows(shipment, totals);
   const ws = XLSX.utils.json_to_sheet(rows);
 
@@ -166,10 +268,26 @@ export const exportExcel = (shipment, totals, poNumber, containerType, freightMo
      the `L` key, so "Volumetric Wt" landed under the Length column — a number in
      a dimension column, which is actively misleading. Writing the pairs directly
      into column A/B after the table puts each label beside its own value. */
-  const pairs = buildSummaryPairs(totals, containerType, freightMode);
+  const freightOpts = {
+    items: shipment,
+    customContainer: opts?.customContainer,
+    country: opts?.country,
+    carrier: opts?.carrier,
+    overrides: opts?.overrides,
+  };
+  const pairs = buildSummaryPairs(totals, containerType, freightMode, freightOpts);
   const startRow = rows.length + 2; // one blank row after the table
   XLSX.utils.sheet_add_aoa(ws, [['SHIPMENT SUMMARY']], { origin: `A${startRow}` });
   XLSX.utils.sheet_add_aoa(ws, pairs, { origin: `A${startRow + 1}` });
+
+  /* The derivation trail, so the chargeable weight above can be re-checked by
+     hand from this same file rather than taken on trust. */
+  const workings = buildWorkingsRows(totals, containerType, freightMode, freightOpts);
+  const workingsRow = startRow + pairs.length + 2;
+  XLSX.utils.sheet_add_aoa(ws, [['CHARGEABLE WEIGHT WORKINGS']], {
+    origin: `A${workingsRow}`,
+  });
+  XLSX.utils.sheet_add_aoa(ws, workings, { origin: `A${workingsRow + 1}` });
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Shipment');
@@ -179,18 +297,42 @@ export const exportExcel = (shipment, totals, poNumber, containerType, freightMo
 /**
  * Export shipment data to a CSV file (same columns as the Excel export).
  *
- * Now genuinely at parity: the freight/container summary is appended as a second
- * block, and the file is prefixed with a UTF-8 BOM so Excel renders non-ASCII
- * product names correctly instead of as mojibake. CRLF line endings match what
- * Excel expects.
+ * Now genuinely at parity: the freight/container summary and the chargeable-weight
+ * workings are appended as further blocks, and the file is prefixed with a UTF-8
+ * BOM so Excel renders non-ASCII product names correctly instead of as mojibake.
+ * CRLF line endings match what Excel expects.
  */
-export const exportCSV = (shipment, totals, poNumber, containerType, freightMode) => {
+export const exportCSV = (
+  shipment,
+  totals,
+  poNumber,
+  containerType,
+  freightMode,
+  opts = {}
+) => {
+  const freightOpts = {
+    items: shipment,
+    customContainer: opts?.customContainer,
+    country: opts?.country,
+    carrier: opts?.carrier,
+    overrides: opts?.overrides,
+  };
   const table = Papa.unparse(buildRows(shipment, totals), { newline: '\r\n' });
   const summary = Papa.unparse(
-    [['SHIPMENT SUMMARY'], ...buildSummaryPairs(totals, containerType, freightMode)],
+    [
+      ['SHIPMENT SUMMARY'],
+      ...buildSummaryPairs(totals, containerType, freightMode, freightOpts),
+    ],
     { newline: '\r\n' }
   );
-  const csv = `${table}\r\n\r\n${summary}`;
+  const workings = Papa.unparse(
+    [
+      ['CHARGEABLE WEIGHT WORKINGS'],
+      ...buildWorkingsRows(totals, containerType, freightMode, freightOpts),
+    ],
+    { newline: '\r\n' }
+  );
+  const csv = `${table}\r\n\r\n${summary}\r\n\r\n${workings}`;
 
   // \uFEFF is the UTF-8 BOM; without it Excel assumes the system codepage
   // and renders non-ASCII product names as mojibake.
@@ -264,20 +406,35 @@ export const exportRejectedRows = (rejected) => {
  * @param {Array} shipment - Array of shipment items.
  * @param {object} totals - Computed totals object.
  * @param {string} poNumber - PO / reference number.
- * @param {string} containerType - Container type key (e.g. '40hc').
+ * @param {string} containerType - Container selection key ('40hc', 'custom', 'none').
  * @param {string} freightMode - Key into FREIGHT_MODES.
+ * @param {{customContainer?: object, country?: string, carrier?: string,
+ *          overrides?: object}} [opts] - User-entered container capacity plus the
+ *   destination/carrier rule selections, so the document quotes the same
+ *   chargeable weight and payload cap the user saw on screen.
  */
 export const exportPDF = (
   shipment,
   totals,
   poNumber,
   containerType,
-  freightMode
+  freightMode,
+  opts = {}
 ) => {
   const doc = new jsPDF({
     orientation: 'landscape',
     unit: 'mm',
     format: 'a4',
+  });
+
+  /* One computation for the whole document — the same one the UI renders — so the
+     PDF can quote both the billed figure and the derivation behind it. */
+  const freight = freightFor(totals, containerType, freightMode, {
+    items: shipment,
+    customContainer: opts?.customContainer,
+    country: opts?.country,
+    carrier: opts?.carrier,
+    overrides: opts?.overrides,
   });
 
   // Header
@@ -287,7 +444,6 @@ export const exportPDF = (
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100);
-  const mode = FREIGHT_MODES[freightMode];
   let headerY = 26;
   if (poNumber) {
     doc.text(`PO / Reference: ${poNumber}`, 14, headerY);
@@ -295,8 +451,18 @@ export const exportPDF = (
   }
   doc.text(`Date: ${new Date().toLocaleDateString()}`, 14, headerY);
   headerY += 6;
-  doc.text(`Freight Mode: ${mode?.label || freightMode}`, 14, headerY);
+  doc.text(`Freight Mode: ${freight.modeLabel}`, 14, headerY);
   headerY += 5;
+  /* Only printed when a rule profile actually applied — an untouched shipment's
+     letterhead stays exactly as it was. */
+  if (!freight.rulesAreDefault) {
+    doc.text(
+      `Rules: ${freight.countryLabel}  |  ${freight.carrierLabel}`,
+      14,
+      headerY
+    );
+    headerY += 5;
+  }
 
   // Table
   const tableData = (shipment || []).map((item, i) => {
@@ -371,10 +537,9 @@ export const exportPDF = (
     }
   };
 
-  const cbm = safeNonNegative(totals?.cbm);
-  const grossWeight = safeNonNegative(totals?.grossWeight);
-  const volumetric = cbm * (mode?.volumetricFactor || 0);
-  const chargeable = Math.max(grossWeight, volumetric);
+  const cbm = freight.cbm;
+  const grossWeight = freight.grossKg;
+  const billed = billedFigure(freight);
 
   ensureSpace(8);
   doc.text(
@@ -385,27 +550,89 @@ export const exportPDF = (
   finalY += 6;
   ensureSpace(8);
   doc.text(
-    `Volumetric Wt: ${fx(volumetric)} kg  |  Chargeable Wt: ${fx(chargeable)} kg  (${mode?.label || freightMode})`,
+    `Volumetric Wt: ${fx(freight.volumetricKg)} kg  |  Chargeable Wt: ${fx(freight.chargeableKg)} kg  |  BILLED: ${billed.display}  (${freight.modeLabel})`,
     14,
     finalY
   );
 
-  const cont = CONTAINERS[containerType];
-  if (cont) {
+  const plan = freight.containerPlan;
+  if (plan.applicable) {
     finalY += 6;
     ensureSpace(8);
-    const volPct = (cbm / cont.cbm) * 100;
-    const wtPct = (grossWeight / cont.maxPayloadKg) * 100;
-    let line = `Container: ${cont.label}  |  Volume: ${fx(volPct)}%  |  Payload: ${fx(wtPct)}% of ${fx(cont.maxPayloadKg / 1000, 1)} t`;
-    const plan = containersNeeded({ cbm, grossWeight }, containerType);
+    const cont = plan.container;
+    let line = `Container: ${cont.label}  |  Volume: ${fx(plan.volumeFillPct)}%  |  Payload: ${fx(plan.payloadFillPct)}% of ${fx(plan.payloadCapKg / 1000, 1)} t`;
     if (plan.count > 1) {
       line += `  |  REQUIRES ${plan.count} CONTAINERS (limited by ${plan.limitedBy})`;
       doc.setTextColor(220, 38, 38);
-    } else if (volPct > 100 || wtPct > 100) {
+    } else if (plan.volumeFillPct > 100 || plan.payloadFillPct > 100) {
       doc.setTextColor(220, 38, 38);
     }
     doc.text(line, 14, finalY);
     doc.setTextColor(0);
+
+    /* The governing-limit statement, printed on the document rather than only shown
+       on screen. Whoever loads the container is not the person who selected the
+       destination, and this is the line that stops them loading to the plate. */
+    if (plan.payloadCapSource === 'road') {
+      finalY += 5;
+      ensureSpace(8);
+      doc.setTextColor(180, 83, 9);
+      doc.setFontSize(8.5);
+      const capLines = doc.splitTextToSize(
+        `GOVERNING LIMIT — road law: payload capped at ${fx(plan.payloadCapKg, 0)} kg by ` +
+          `${freight.countryLabel}, not the ${fx(plan.isoPayloadKg, 0)} kg ISO rating ` +
+          `(${fx(plan.payloadDerateKg, 0)} kg less cargo per container).`,
+        doc.internal.pageSize.getWidth() - 28
+      );
+      doc.text(capLines, 14, finalY);
+      finalY += (capLines.length - 1) * 4;
+      doc.setFontSize(9);
+      doc.setTextColor(0);
+    }
+  }
+
+  /* Chargeable-weight workings.
+     The whole point of Phase 2: whoever receives this document can re-derive the
+     billed figure from the printed arithmetic instead of taking it on trust. */
+  if (freight.workings.length > 0) {
+    finalY += 10;
+    ensureSpace(14);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('How the chargeable weight was derived', 14, finalY);
+    finalY += 2;
+
+    autoTable(doc, {
+      startY: finalY,
+      head: [['Step', 'Derivation', 'Value']],
+      body: freight.workings.map((w) => [w.label, w.expression, w.display]),
+      styles: { fontSize: 7.5, cellPadding: 1.5 },
+      headStyles: { fillColor: [13, 125, 110], textColor: 255, fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 52, fontStyle: 'bold' },
+        2: { cellWidth: 38, halign: 'right' },
+      },
+      theme: 'grid',
+      margin: { left: 14, right: 14 },
+    });
+    finalY = (doc.lastAutoTable?.finalY || finalY) + 6;
+
+    /* Sourcing caveats printed rather than hidden — two of the figures above are
+       industry practice we could not verify from a primary source, and a document
+       that implies otherwise is worse than one that says so. */
+    if (freight.notes.length > 0) {
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(110);
+      const pageWidth = doc.internal.pageSize.getWidth();
+      for (const note of freight.notes) {
+        const lines = doc.splitTextToSize(`• ${note}`, pageWidth - 28);
+        ensureSpace(lines.length * 3.2 + 2);
+        doc.text(lines, 14, finalY);
+        finalY += lines.length * 3.2 + 1;
+      }
+      doc.setTextColor(0);
+    }
   }
 
   doc.save(exportFileName('shipment', poNumber, 'pdf'));
