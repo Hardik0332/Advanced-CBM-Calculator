@@ -1,7 +1,7 @@
 /**
- * Header — Top bar with title and theme toggle.
+ * Header — Top bar with title, company profile and theme toggle.
  */
-import { SunIcon, MoonIcon, MonitorIcon } from '../icons/Icons';
+import { SunIcon, MoonIcon, MonitorIcon, FileDocIcon } from '../icons/Icons';
 
 /* ── Theme Toggle sub-component ── */
 const ThemeToggle = ({ mode, setTheme }) => {
@@ -40,7 +40,7 @@ const ThemeToggle = ({ mode, setTheme }) => {
 };
 
 /* ── Header component ── */
-const Header = ({ mode, setTheme }) => (
+const Header = ({ mode, setTheme, onOpenProfile }) => (
   <header className="mb-6 sm:mb-8">
     <div className="flex items-center justify-between gap-4">
       <div className="flex items-center gap-3 min-w-0">
@@ -60,7 +60,27 @@ const Header = ({ mode, setTheme }) => (
           </p>
         </div>
       </div>
-      <ThemeToggle mode={mode} setTheme={setTheme} />
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {/* The letterhead behind every exported document. Reachable from the header
+            because it is set once and then wanted from anywhere, not owned by any
+            one panel. */}
+        <button
+          type="button"
+          id="company-profile-btn"
+          onClick={onOpenProfile}
+          title="Company profile"
+          aria-label="Edit company profile"
+          className="flex items-center gap-1.5 px-2.5 h-7 rounded-lg text-xs font-medium
+                     text-surface-500 dark:text-surface-400 bg-surface-100 dark:bg-surface-800
+                     border border-surface-200 dark:border-surface-700
+                     hover:text-accent-600 dark:hover:text-accent-300
+                     hover:bg-surface-200 dark:hover:bg-surface-700 transition-colors"
+        >
+          <FileDocIcon />
+          <span className="hidden sm:inline">Profile</span>
+        </button>
+        <ThemeToggle mode={mode} setTheme={setTheme} />
+      </div>
     </div>
   </header>
 );

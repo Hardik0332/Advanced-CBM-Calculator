@@ -6,8 +6,6 @@
  * produce a diagnosis on the row rather than a zero, and every rejected row is
  * recoverable via the rejected-rows export in the wizard.
  */
-import Papa from 'papaparse';
-import * as XLSX from 'xlsx';
 import { parseFlexibleNumber, detectColumnLocale, clampInt } from './numbers';
 import { mapHeaders, FIELD_DEFS } from './headerMap';
 import { calcCBM } from './calculations';
@@ -163,19 +161,34 @@ export const parseCell = (val, opts) => {
  * @returns {Promise<{ headers: string[], rows: object[], sheetNames?: string[],
  *   parseSheet?: Function, truncated?: boolean, totalRows?: number }>}
  */
-export const parseFile = (file) =>
-  new Promise((resolve, reject) => {
-    if (!file) return reject(new Error('No file provided.'));
+export const parseFile = async (file) => {
+  if (!file) throw new Error('No file provided.');
 
-    if (file.size > MAX_FILE_BYTES) {
-      return reject(
-        new Error(
-          `File is ${formatBytes(file.size)} — the limit is ${formatBytes(MAX_FILE_BYTES)}. ` +
-          `Split it into smaller files, or remove unused columns and sheets.`
-        )
-      );
-    }
+  /* Size and type are checked before any library loads: there is no sense fetching
+     500 kB of SheetJS to then refuse the file. */
+  if (file.size > MAX_FILE_BYTES) {
+    throw new Error(
+      `File is ${formatBytes(file.size)} — the limit is ${formatBytes(MAX_FILE_BYTES)}. ` +
+        `Split it into smaller files, or remove unused columns and sheets.`
+    );
+  }
 
+  /* Parser libraries load on demand, and only the one this file needs. Papa Parse
+     and SheetJS are ~510 kB together and were statically imported here, so every
+     visitor downloaded a spreadsheet engine before first paint whether or not they
+     ever opened the import wizard. A CSV no longer pulls in SheetJS at all. */
+  const name = file.name.toLowerCase();
+  const isCsv = name.endsWith('.csv') || name.endsWith('.txt') || name.endsWith('.tsv');
+  const isExcel = name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.xlsm');
+
+  if (!isCsv && !isExcel) {
+    throw new Error('Unsupported file type. Use a .csv, .txt, .tsv, .xlsx, .xls or .xlsm file.');
+  }
+
+  const Papa = isCsv ? (await import('papaparse')).default : null;
+  const XLSX = isExcel ? await import('xlsx') : null;
+
+  return new Promise((resolve, reject) => {
     /** Enforce the row cap once, in one place, and report what was dropped. */
     const capRows = (rows) => {
       const totalRows = rows.length;
@@ -183,9 +196,7 @@ export const parseFile = (file) =>
       return { rows: rows.slice(0, MAX_ROWS), truncated: true, totalRows };
     };
 
-    const name = file.name.toLowerCase();
-
-    if (name.endsWith('.csv') || name.endsWith('.txt') || name.endsWith('.tsv')) {
+    if (isCsv) {
       Papa.parse(file, {
         header: true,
         skipEmptyLines: 'greedy', // also drops rows of only commas
@@ -199,7 +210,7 @@ export const parseFile = (file) =>
       return;
     }
 
-    if (name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.xlsm')) {
+    if (isExcel) {
       const reader = new FileReader();
       reader.onload = (e) => {
         // Defer heavy XLSX parsing so the browser can repaint the loading spinner first
@@ -276,13 +287,9 @@ export const parseFile = (file) =>
       };
       reader.onerror = () => reject(new Error('Failed to read file'));
       reader.readAsArrayBuffer(file);
-      return;
     }
-
-    reject(
-      new Error('Unsupported file type. Please upload a .csv, .xlsx or .xls file.')
-    );
   });
+};
 
 /* ══════════════════════════════════════════════════════════
    Header mapping — back-compatible facade over headerMap.js

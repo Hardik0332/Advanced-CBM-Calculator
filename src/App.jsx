@@ -7,6 +7,7 @@
 import { useState, useCallback } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { useShipment } from './hooks/useShipment';
+import { useCompanyProfile } from './hooks/useCompanyProfile';
 import Header from './components/layout/Header';
 import CustomCBMForm from './components/calculator/CustomCBMForm';
 import ActiveShipment from './components/shipment/ActiveShipment';
@@ -14,10 +15,12 @@ import ProductDirectory from './components/directory/ProductDirectory';
 import ManualAddModal from './components/modals/ManualAddModal';
 import ImportWizardModal from './components/modals/ImportWizardModal';
 import ProductSummaryModal from './components/modals/ProductSummaryModal';
+import CompanyProfileModal from './components/modals/CompanyProfileModal';
 import NoticeToast from './components/ui/NoticeToast';
 
 function App() {
   const [summaryData, setSummaryData] = useState(null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const { mode, setTheme } = useTheme();
   const {
     // Product directory
@@ -59,6 +62,11 @@ function App() {
     freightMode,
     setFreightMode,
 
+    // Trade metadata for the export documents
+    trade,
+    updateTradeMeta,
+    exportMeta,
+
     // Country & carrier rule profiles
     destinationCountry,
     setDestinationCountry,
@@ -90,15 +98,31 @@ function App() {
     handleAddToDirectory,
     handleRemove,
     handleQuantityChange,
+    updateItemTradeField,
     handleEditItem,
     handleDuplicateItem,
     clearShipment,
     clearDirectory,
+    reportStorageError,
   } = useShipment();
+
+  /* The company profile lives in its own hook and its own storage key: it outlives
+     any single shipment and must survive "clear shipment". */
+  const {
+    company,
+    updateCompany,
+    addParty,
+    updateParty,
+    removeParty,
+    setLogoFromFile,
+    clearLogo,
+  } = useCompanyProfile(reportStorageError);
 
   // Stable callbacks to prevent re-renders of memoized modal children
   const handleCloseImport   = useCallback(() => setImportOpen(false), [setImportOpen]);
   const handleCloseSummary  = useCallback(() => setSummaryData(null), []);
+  const handleOpenProfile   = useCallback(() => setProfileOpen(true), []);
+  const handleCloseProfile  = useCallback(() => setProfileOpen(false), []);
 
   return (
     <div className="min-h-screen bg-surface-50 dark:bg-surface-900">
@@ -107,7 +131,7 @@ function App() {
 
       <div className="relative z-10 max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* ── HEADER ── */}
-        <Header mode={mode} setTheme={setTheme} />
+        <Header mode={mode} setTheme={setTheme} onOpenProfile={handleOpenProfile} />
 
         {/* ── MAIN GRID ── */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6">
@@ -146,6 +170,12 @@ function App() {
             ruleOverrides={ruleOverrides}
             updateRuleOverride={updateRuleOverride}
             resetRuleOverrides={resetRuleOverrides}
+            trade={trade}
+            updateTradeMeta={updateTradeMeta}
+            exportMeta={exportMeta}
+            company={company}
+            onOpenProfile={handleOpenProfile}
+            products={products}
             totals={totals}
             freight={freight}
             container={container}
@@ -156,6 +186,7 @@ function App() {
             containerPlan={containerPlan}
             handleRemove={handleRemove}
             handleQuantityChange={handleQuantityChange}
+            updateItemTradeField={updateItemTradeField}
             handleEditItem={handleEditItem}
             handleDuplicateItem={handleDuplicateItem}
             clearShipment={clearShipment}
@@ -202,6 +233,17 @@ function App() {
         isOpen={!!summaryData}
         onClose={handleCloseSummary}
         data={summaryData}
+      />
+      <CompanyProfileModal
+        isOpen={profileOpen}
+        onClose={handleCloseProfile}
+        company={company}
+        updateCompany={updateCompany}
+        addParty={addParty}
+        updateParty={updateParty}
+        removeParty={removeParty}
+        setLogoFromFile={setLogoFromFile}
+        clearLogo={clearLogo}
       />
     </div>
   );

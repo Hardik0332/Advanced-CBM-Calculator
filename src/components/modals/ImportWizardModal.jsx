@@ -839,6 +839,26 @@ const DataPreviewStep = memo(({
     [taggedProducts]
   );
 
+  /* The rejected-rows CSV is async now — Papa Parse loads on demand — so the button
+     shows progress and reports a failure instead of appearing inert. */
+  const [rejectedBusy, setRejectedBusy] = useState(false);
+  const [rejectedError, setRejectedError] = useState('');
+  const handleDownloadRejected = async () => {
+    setRejectedBusy(true);
+    setRejectedError('');
+    try {
+      await exportRejectedRows(rejectedRows);
+    } catch (err) {
+      setRejectedError(
+        err instanceof Error
+          ? `Could not write the file: ${err.message}`
+          : 'Could not write the rejected-rows file.'
+      );
+    } finally {
+      setRejectedBusy(false);
+    }
+  };
+
   const counts = useMemo(
     () => ({
       new: taggedProducts.filter((p) => p.status === 'new').length,
@@ -986,11 +1006,20 @@ const DataPreviewStep = memo(({
           </p>
           <button
             type="button"
-            onClick={() => exportRejectedRows(rejectedRows)}
+            onClick={handleDownloadRejected}
+            disabled={rejectedBusy}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/30 flex-shrink-0"
           >
-            <ExcelIcon /> Download rejected rows
+            <ExcelIcon /> {rejectedBusy ? 'Preparing…' : 'Download rejected rows'}
           </button>
+          {rejectedError && (
+            <p
+              role="alert"
+              className="basis-full text-[10px] font-semibold text-rose-600 dark:text-rose-400"
+            >
+              {rejectedError}
+            </p>
+          )}
         </div>
       )}
 

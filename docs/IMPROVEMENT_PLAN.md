@@ -341,6 +341,27 @@ export entry point to `async` with a dynamic `import()` inside, and add
 `build.rollupOptions.manualChunks` in [vite.config.js](../vite.config.js). Callers become `await`-ed
 — a deliberate API change, needed before adding a font chunk.
 
+**Implementation note — `manualChunks` per library made it worse, not better.** Naming a chunk
+per library promotes that chunk into the *entry's static import list*, so the built
+`index.html` gained `<link rel="modulepreload">` for all 431 kB of jsPDF and the entry chunk
+opened with `import { i } from "./vendor-pdf-….js"` — fetched on every visit, for a button most
+visitors never press. Rollup says so out loud (`INEFFECTIVE_DYNAMIC_IMPORT`) once a module is
+both statically and dynamically imported. Two changes were needed beyond the `import()` calls:
+
+- **`utils/export/catalog.js`** — the option catalogues (which sheets, tables, documents exist)
+  had to move out of `excel.js` / `csv.js` / `pdf/index.js`. `ExportModal` needs the labels at
+  first paint, so importing a label was statically importing the renderer, and SheetJS with it.
+  Descriptions live in the catalogue; implementations attach by key.
+- **Drop the per-library `manualChunks` rules entirely** and let Rollup's own dynamic-import
+  splitting work. Only React is force-grouped, because it genuinely *is* a static dependency.
+
+Also lazy-loaded `fileParser.js`'s own `Papa`/`XLSX` imports — the *import* side, which was a
+second eager copy of the same 510 kB — and only the parser a given file needs: a CSV no longer
+pulls in SheetJS at all.
+
+Result: first paint fetches the entry (238 kB), React (190 kB) and the runtime (0.6 kB). The
+~1.32 MB of export/import libraries are all `isDynamicEntry` and load on first use.
+
 ---
 
 ## Phase 4 — Email / share (no backend)

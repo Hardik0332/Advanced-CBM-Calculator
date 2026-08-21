@@ -43,6 +43,10 @@ const formatValue = (v) => {
 const ProductSummaryModal = ({ isOpen, onClose, data }) => {
   /* id -> rawData recovered from IndexedDB for products that lost it on reload. */
   const [hydrated, setHydrated] = useState({});
+  /* The Excel export is async now — `xlsx` loads on demand — so the button owns a
+     busy state and surfaces a failure rather than appearing to do nothing. */
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState('');
 
   const items = useMemo(() => {
     if (!data) return [];
@@ -192,6 +196,19 @@ const ProductSummaryModal = ({ isOpen, onClose, data }) => {
       ? data
       : { ...data, rawData: hydrated[data.id] };
 
+  const handleExport = async () => {
+    setExportBusy(true);
+    setExportError('');
+    try {
+      const written = await exportRawDataExcel(exportPayload);
+      if (!written) setExportError('There is no raw import data to export.');
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'The export failed.');
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
   return (
     <Modal
       isOpen={isOpen}
@@ -208,15 +225,26 @@ const ProductSummaryModal = ({ isOpen, onClose, data }) => {
       bodyClassName="p-5"
       headerActions={
         <button
-          onClick={() => exportRawDataExcel(exportPayload)}
-          className="px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/40 hover:bg-emerald-200 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800/80 transition-colors flex items-center gap-1.5 flex-shrink-0"
+          onClick={handleExport}
+          disabled={exportBusy}
+          className="px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/40 hover:bg-emerald-200 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800/80 transition-colors flex items-center gap-1.5 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
           title="Download Excel"
         >
           <ExcelIcon />
-          <span className="hidden sm:inline">Export Excel</span>
+          <span className="hidden sm:inline">
+            {exportBusy ? 'Exporting…' : 'Export Excel'}
+          </span>
         </button>
       }
     >
+      {exportError && (
+        <p
+          role="alert"
+          className="mb-3 px-3 py-2 rounded-lg text-[11px] font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800"
+        >
+          {exportError}
+        </p>
+      )}
       {isCatalogMode ? renderCatalogMode() : renderSingleMode()}
     </Modal>
   );

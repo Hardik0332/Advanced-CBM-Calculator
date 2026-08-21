@@ -9,8 +9,7 @@ import {
   TrashIcon,
   EditIcon,
   CopyIcon,
-  ExcelIcon,
-  PdfIcon,
+  FileDocIcon,
 } from '../icons/Icons';
 import {
   CONTAINERS,
@@ -22,9 +21,11 @@ import {
 } from '../../utils/calculations';
 import { billedFigure } from '../../utils/freight';
 import { safeNum } from '../../utils/numbers';
-import { exportExcel, exportCSV, exportPDF } from '../../utils/exporting';
+import { ITEM_TRADE_FIELDS } from '../../hooks/useShipment';
 import FreightWorkings from './FreightWorkings';
 import ShipmentRulesPanel from './ShipmentRulesPanel';
+import ShipmentDetailsPanel from './ShipmentDetailsPanel';
+import ExportModal from '../modals/ExportModal';
 
 const colorStyles = {
   indigo: {
@@ -92,6 +93,12 @@ const ActiveShipment = memo(({
   ruleOverrides,
   updateRuleOverride,
   resetRuleOverrides,
+  trade,
+  updateTradeMeta,
+  exportMeta,
+  company,
+  onOpenProfile,
+  products,
   totals,
   freight,
   container,
@@ -102,12 +109,17 @@ const ActiveShipment = memo(({
   containerPlan,
   handleRemove,
   handleQuantityChange,
+  updateItemTradeField,
   handleEditItem,
   handleDuplicateItem,
   clearShipment,
   handleAddProductToShipment,
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  /* One row's trade fields open at a time. Keeps the list scannable and means the
+     panel never pushes the totals off screen twice over. */
+  const [tradeOpenId, setTradeOpenId] = useState(null);
   const panelCls = 'panel rounded-2xl shadow-panel';
 
   const handleDragOver = (e) => {
@@ -147,13 +159,17 @@ const ActiveShipment = memo(({
   const roadCapped = containerPlan?.payloadCapSource === 'road';
   const billed = billedFigure(freight);
   const isCustom = containerType === CUSTOM_CONTAINER;
-  /* Export calls need the custom capacity and the rule selections too, or an
-     exported document would quote different numbers from the screen. */
-  const exportOpts = {
-    customContainer,
-    country: destinationCountry,
-    carrier: carrierProfile,
-    overrides: ruleOverrides,
+
+  /* Everything an export needs, in the one shape `prepareExport` takes. `freight`
+     is passed through rather than recomputed so a document cannot possibly quote a
+     different chargeable weight from the card above it. */
+  const exportArgs = {
+    shipment,
+    totals,
+    meta: exportMeta,
+    company,
+    products,
+    freight,
   };
 
   return (
@@ -196,31 +212,16 @@ const ActiveShipment = memo(({
           <div className="flex items-center w-full sm:w-auto justify-start sm:justify-end gap-2 flex-shrink-0 flex-wrap">
             {shipment.length > 0 && (
               <>
+                {/* One entry point instead of three. With six CSV tables, six Excel
+                    sheets and three PDF documents there is far more than three
+                    outputs to offer, and a toolbar cannot express the combinations. */}
                 <button
-                  id="export-excel-btn"
-                  onClick={() => exportExcel(shipment, totals, poNumber, containerType, freightMode, exportOpts)}
-                  title="Export Excel"
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/30"
+                  id="export-btn"
+                  onClick={() => setExportOpen(true)}
+                  title="Export documents"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-accent-600 hover:bg-accent-700 border border-accent-600 shadow-panel"
                 >
-                  <ExcelIcon /> Excel
-                </button>
-                <button
-                  id="export-csv-btn"
-                  onClick={() => exportCSV(shipment, totals, poNumber, containerType, freightMode, exportOpts)}
-                  title="Export CSV"
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 hover:bg-teal-100 dark:hover:bg-teal-900/30"
-                >
-                  <ExcelIcon /> CSV
-                </button>
-                <button
-                  id="export-pdf-btn"
-                  onClick={() =>
-                    exportPDF(shipment, totals, poNumber, containerType, freightMode, exportOpts)
-                  }
-                  title="Export PDF"
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/30"
-                >
-                  <PdfIcon /> PDF
+                  <FileDocIcon /> Export
                 </button>
                 <button
                   onClick={clearShipment}
@@ -269,6 +270,8 @@ const ActiveShipment = memo(({
               const hasPartialBox =
                 item.packSize > 1 && lastBoxPcs > 0 && lastBoxPcs < item.packSize;
               const isFlashing = flashId === item.id;
+              const tradeOpen = tradeOpenId === item.id;
+              const hasTrade = ITEM_TRADE_FIELDS.some((f) => item[f] !== '' && item[f] != null);
 
               return (
                 <div
@@ -300,6 +303,29 @@ const ActiveShipment = memo(({
                       </div>
                       {/* Action icons: Edit, Copy, Delete */}
                       <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                        {/* Trade fields live behind a toggle: they matter on an
+                            invoice and are noise when checking whether a load fits.
+                            The dot marks a line that already has some. */}
+                        <button
+                          id={`trade-item-${idx}`}
+                          onClick={() => setTradeOpenId(tradeOpen ? null : item.id)}
+                          title="HS code, price & origin"
+                          aria-label={`Trade fields for ${item.name}`}
+                          aria-expanded={tradeOpen}
+                          className={`relative p-1.5 rounded-lg ${
+                            tradeOpen
+                              ? 'text-accent-600 dark:text-accent-300 bg-accent-50 dark:bg-accent-900/30'
+                              : 'text-surface-400 hover:text-accent-600 hover:bg-accent-50 dark:hover:bg-accent-900/30'
+                          }`}
+                        >
+                          <FileDocIcon />
+                          {hasTrade && (
+                            <span
+                              className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent-500"
+                              aria-hidden="true"
+                            />
+                          )}
+                        </button>
                         <button
                           id={`edit-item-${idx}`}
                           onClick={() => handleEditItem(item)}
@@ -379,6 +405,54 @@ const ActiveShipment = memo(({
 
                       </div>
                     </div>
+
+                    {/* ── Inline trade fields ──
+                        The values the packing list and commercial invoice print.
+                        Editable here rather than only in the add/edit form because
+                        they are per-shipment facts — an HS code is a property of the
+                        goods, but a unit price and marks belong to this consignment,
+                        and reopening the dimensions form to type a price is the wrong
+                        shape of interaction. */}
+                    {tradeOpen && (
+                      <div className="mt-3 pt-3 border-t border-surface-200 dark:border-surface-700 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {[
+                          { field: 'hsCode', label: 'HS code', placeholder: '8471.30' },
+                          { field: 'unitPrice', label: 'Unit price', placeholder: '0.00', type: 'number' },
+                          { field: 'origin', label: 'Origin', placeholder: 'India' },
+                          { field: 'sku', label: 'SKU', placeholder: 'ACME-001' },
+                          { field: 'marks', label: 'Marks', placeholder: 'ACME/1-12' },
+                          { field: 'notes', label: 'Notes', placeholder: 'Fragile' },
+                        ].map(({ field, label, placeholder, type }) => (
+                          <div key={field}>
+                            <label
+                              htmlFor={`item-${field}-${idx}`}
+                              className="block text-[9px] uppercase tracking-wider font-bold text-surface-500 dark:text-surface-300 mb-1"
+                            >
+                              {label}
+                            </label>
+                            <input
+                              id={`item-${field}-${idx}`}
+                              type={type || 'text'}
+                              {...(type === 'number' ? { min: '0', step: 'any' } : {})}
+                              value={item[field] ?? ''}
+                              onChange={(e) =>
+                                updateItemTradeField(item.id, field, e.target.value)
+                              }
+                              placeholder={placeholder}
+                              className="w-full bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700
+                                         rounded-lg px-2 py-1 text-[11px] font-medium text-surface-800 dark:text-surface-100
+                                         focus:outline-none focus:ring-1 focus:ring-accent-500/40"
+                            />
+                          </div>
+                        ))}
+                        {safeNum(item.unitPrice, 0) > 0 && (
+                          <p className="col-span-2 sm:col-span-3 text-[10px] font-mono text-surface-500 dark:text-surface-400">
+                            Line amount: {(safeNum(item.unitPrice, 0) * totalPcs).toFixed(2)}
+                            {' '}({totalPcs.toLocaleString()} pcs)
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -675,10 +749,29 @@ const ActiveShipment = memo(({
               </p>
 
               <FreightWorkings workings={freight.workings} notes={freight.notes} />
+
+              {/* Trade metadata for the documents. Last in the column and collapsed
+                  by default: it matters on an invoice and not at all when someone is
+                  just checking whether a load fits. */}
+              <ShipmentDetailsPanel
+                trade={trade}
+                updateTradeMeta={updateTradeMeta}
+                company={company}
+                onOpenProfile={onOpenProfile}
+              />
             </div>
           </div>
         )}
       </div>
+
+      <ExportModal
+        isOpen={exportOpen}
+        onClose={() => setExportOpen(false)}
+        exportArgs={exportArgs}
+        hasPrices={shipment.some((i) => Number(i?.unitPrice) > 0)}
+        hasProducts={(products || []).length > 0}
+        hasRawData={(products || []).some((p) => p?.rawData)}
+      />
     </section>
   );
 });

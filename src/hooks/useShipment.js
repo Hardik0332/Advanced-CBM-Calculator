@@ -63,10 +63,52 @@ const loadProducts = () => migrateProducts(readJSON(STORAGE_KEYS.products)).item
 /** Load + migrate persisted shipment items (older versions lack totalPcs). */
 const loadShipment = () => migrateShipment(readJSON(STORAGE_KEYS.shipment)).items;
 
+/**
+ * Trade metadata the export documents read. All optional — a shipment with none of
+ * them still exports, it just produces a leaner document.
+ *
+ * Held in one nested object rather than fifteen more top-level meta fields so the
+ * persist effect, the setter and `ShipmentDetailsPanel` each deal with one thing.
+ */
+export const EMPTY_TRADE_META = {
+  invoiceNo: '',
+  invoiceDate: '',
+  incoterm: '',
+  portOfLoading: '',
+  portOfDischarge: '',
+  vesselFlight: '',
+  marksNumbers: '',
+  currency: '',
+  paymentTerms: '',
+  countryOfOrigin: '',
+  invoiceDeclaration: '',
+  notes: '',
+  shipperId: '',
+  consigneeId: '',
+  notifyId: '',
+  freightCharge: '',
+  insuranceCharge: '',
+};
+
+/**
+ * Per-item fields the inline editor may touch.
+ *
+ * A whitelist rather than an open patch: dimensions and weights feed CBM and every
+ * total, and they already have one editing path through the form. Two paths to the
+ * same derived state is how they drift apart.
+ */
+export const ITEM_TRADE_FIELDS = ['hsCode', 'unitPrice', 'origin', 'marks', 'sku', 'notes'];
+
 /** Load persisted shipment metadata (PO number, container, freight mode, rules). */
 const loadMeta = () => {
   const m = normalizeMeta(readJSON(STORAGE_KEYS.meta));
   const custom = m.customContainer;
+
+  const trade = {};
+  for (const key of Object.keys(EMPTY_TRADE_META)) {
+    trade[key] = m[key] ?? '';
+  }
+
   return {
     poNumber: m.poNumber || '',
     // 'none' (LCL / loose cargo) and 'custom' are valid selections now, so this
@@ -85,6 +127,7 @@ const loadMeta = () => {
       : DEFAULT_COUNTRY,
     carrierProfile: isValidCarrier(m.carrierProfile) ? m.carrierProfile : DEFAULT_CARRIER,
     ruleOverrides: m.ruleOverrides || {},
+    trade,
   };
 };
 
@@ -190,6 +233,7 @@ export function useShipment() {
       destinationCountry,
       carrierProfile,
       ruleOverrides,
+      trade,
     },
     setMeta,
   ] = useState(loadMeta);
@@ -248,6 +292,22 @@ export function useShipment() {
     []
   );
 
+  /**
+   * Patch one trade-metadata field (invoice number, ports, Incoterm, parties…).
+   *
+   * Blanks are kept here rather than deleted, unlike `updateRuleOverride`: an empty
+   * Port of Discharge means "not filled in", which is a normal resting state the
+   * documents already omit, not an override that must fall through to a profile.
+   */
+  const updateTradeMeta = useCallback(
+    (field, value) =>
+      setMeta((m) => ({
+        ...m,
+        trade: { ...(m.trade || EMPTY_TRADE_META), [field]: value },
+      })),
+    []
+  );
+
   const metaTimerRef = useRef(null);
   useEffect(() => {
     clearTimeout(metaTimerRef.current);
@@ -260,6 +320,9 @@ export function useShipment() {
         destinationCountry,
         carrierProfile,
         ruleOverrides,
+        /* Flattened, not nested: `normalizeMeta` reads the trade fields at the top
+           level so a document builder can take the persisted object as-is. */
+        ...trade,
       }).ok;
       if (!ok) reportStorageError();
     }, 500);
@@ -272,6 +335,7 @@ export function useShipment() {
     destinationCountry,
     carrierProfile,
     ruleOverrides,
+    trade,
     reportStorageError,
   ]);
 
@@ -642,6 +706,23 @@ export function useShipment() {
     []
   );
 
+  /**
+   * Patch one trade field on one shipment line.
+   *
+   * Scoped to the fields the documents print — HS code, unit price, origin, marks,
+   * SKU, notes — and deliberately **not** dimensions or weights. Those recompute
+   * CBM and totals, which is what `handleEditItem` and the form exist for; letting
+   * an inline cell change them would give two paths to the same derived state.
+   *
+   * @param {string} id
+   * @param {'hsCode'|'unitPrice'|'origin'|'marks'|'sku'|'notes'} field
+   * @param {string} value - Raw input text; coerced on persist by `normalizeShipmentItem`.
+   */
+  const updateItemTradeField = useCallback((id, field, value) => {
+    if (!ITEM_TRADE_FIELDS.includes(field)) return;
+    setShipment((p) => p.map((i) => (i.id === id ? { ...i, [field]: value } : i)));
+  }, []);
+
   /* ── Edit item — populate form and remove from shipment ── */
   const handleEditItem = useCallback((item) => {
     setForm({
@@ -820,6 +901,36 @@ export function useShipment() {
       Number(form.height) > 0) ||
     Number(form.presetCBM) > 0;
 
+  /**
+   * The single metadata object every exporter takes.
+   *
+   * Assembled here rather than in each export call site so a new field is wired in
+   * one place, and so `ActiveShipment` does not have to know which of the fifteen
+   * meta values a given document happens to read.
+   */
+  const exportMeta = useMemo(
+    () => ({
+      poNumber,
+      containerType,
+      freightMode,
+      customContainer,
+      destinationCountry,
+      carrierProfile,
+      ruleOverrides,
+      ...trade,
+    }),
+    [
+      poNumber,
+      containerType,
+      freightMode,
+      customContainer,
+      destinationCountry,
+      carrierProfile,
+      ruleOverrides,
+      trade,
+    ]
+  );
+
   return {
     // Product directory
     products,
@@ -860,6 +971,11 @@ export function useShipment() {
     freightMode,
     setFreightMode,
 
+    // Trade metadata for the export documents
+    trade,
+    updateTradeMeta,
+    exportMeta,
+
     // Country & carrier rule profiles
     destinationCountry,
     setDestinationCountry,
@@ -891,9 +1007,15 @@ export function useShipment() {
     handleAddToDirectory,
     handleRemove,
     handleQuantityChange,
+    updateItemTradeField,
     handleEditItem,
     handleDuplicateItem,
     clearShipment,
     clearDirectory,
+
+    /* Exposed so sibling hooks that persist their own keys — `useCompanyProfile` —
+       report a quota failure through the same toast rather than each growing its
+       own notification path. */
+    reportStorageError,
   };
 }

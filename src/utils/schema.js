@@ -24,6 +24,8 @@ const MAX_DIMENSION = 1e7;      // cm; 100 km — far beyond any real cargo
 const MAX_WEIGHT = 1e9;         // kg
 const MAX_PACK_SIZE = 1e7;
 const MAX_QUANTITY = 1e7;
+/** Absurd invoice values are data errors; unbounded ones produce Infinity totals. */
+const MAX_MONEY = 1e12;
 
 const isPlainObject = (v) =>
   typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof Date);
@@ -38,6 +40,35 @@ const str = (v, fallback = '') => {
 
 const dim = (v) => Math.min(safeNonNegative(v, 0), MAX_DIMENSION);
 const weight = (v) => Math.min(safeNonNegative(v, 0), MAX_WEIGHT);
+
+/**
+ * An HS / HTS tariff code.
+ *
+ * Kept as a string, never a number, and deliberately not run through
+ * `parseFlexibleNumber`. Two reasons, both of which produce a wrong customs
+ * declaration if ignored:
+ *
+ *  • Leading zeros are significant. HS 0901.21 is roasted coffee; parse it as a
+ *    number and it becomes 901.21, which is not a code at all.
+ *  • The dots are separators, not decimal points. `8471.30.01` has two, so any
+ *    numeric parse either fails or silently keeps the first segment.
+ *
+ * Spreadsheets routinely hand these over as numbers already stripped of their
+ * leading zero. Nothing here can recover a digit the file never contained — the
+ * import warn tier is where a suspiciously short code gets flagged — but this at
+ * least stops the app doing the stripping itself.
+ *
+ * @param {*} v
+ * @returns {string}
+ */
+const hsCode = (v) => {
+  if (v == null) return '';
+  // A number that arrived here has already lost any leading zero upstream; keep
+  // its digits verbatim rather than reformatting them.
+  const s = typeof v === 'number' ? String(v) : str(v);
+  // Codes are digits, dots, spaces and hyphens. Anything else is not a code.
+  return s.replace(/[^\d.\-\s]/g, '').trim().slice(0, 24);
+};
 
 const unit = (v) => (VALID_UNITS.includes(v) ? v : 'cm');
 
@@ -119,6 +150,18 @@ export const normalizeProduct = (raw, index = 0) => {
     netWeightPerUnit: weight(raw.netWeightPerUnit),
     grossWeightPerShipper: weight(raw.grossWeightPerShipper),
     cbmPerShipper: Math.min(safeNonNegative(raw.cbmPerShipper, 0), MAX_DIMENSION),
+
+    /* Trade fields. Importable since Phase 1 and printed by the Phase 3 documents,
+       so they are coerced here rather than trusted: an HS code that arrives as a
+       number from a spreadsheet must not lose a leading zero, and a unit price of
+       `"12,50 €"` must not reach the invoice as a string that sums to NaN. */
+    sku: str(raw.sku),
+    hsCode: hsCode(raw.hsCode),
+    marks: str(raw.marks),
+    origin: str(raw.origin),
+    currency: str(raw.currency),
+    unitPrice: money(raw.unitPrice),
+    notes: str(raw.notes),
   };
 };
 
@@ -153,8 +196,32 @@ export const normalizeShipmentItem = (raw, index = 0) => {
 };
 
 /**
+ * Shipment trade metadata — the fields the documents need that are not part of the
+ * cargo itself. All optional strings: a shipment with none of them still exports,
+ * it just produces a leaner document.
+ */
+const TRADE_STRING_FIELDS = [
+  'invoiceNo',
+  'invoiceDate',
+  'incoterm',
+  'portOfLoading',
+  'portOfDischarge',
+  'vesselFlight',
+  'marksNumbers',
+  'currency',
+  'paymentTerms',
+  'countryOfOrigin',
+  'invoiceDeclaration',
+  'notes',
+  'shipperId',
+  'consigneeId',
+  'notifyId',
+];
+
+/**
  * Normalise shipment metadata (PO number, container, freight mode, custom
- * container capacity, destination/carrier rule selections and their overrides).
+ * container capacity, destination/carrier rule selections and their overrides,
+ * and the trade fields the export documents read).
  *
  * `normalizeFreightMode` and the container-selection check stay in
  * calculations.js — this only guarantees types, and callers apply their own
@@ -165,6 +232,10 @@ export const normalizeShipmentItem = (raw, index = 0) => {
  */
 export const normalizeMeta = (raw) => {
   if (!isPlainObject(raw)) return {};
+
+  const trade = {};
+  for (const field of TRADE_STRING_FIELDS) trade[field] = str(raw[field]);
+
   return {
     ...raw,
     poNumber: str(raw.poNumber),
@@ -191,6 +262,93 @@ export const normalizeMeta = (raw) => {
     ruleOverrides: isPlainObject(raw.ruleOverrides)
       ? normalizeRuleOverrides(raw.ruleOverrides)
       : null,
+
+    ...trade,
+    /* Invoice charges. Blank stays blank rather than becoming 0, so an invoice
+       does not print a "Freight: 0.00" line the user never asked for. */
+    freightCharge: money(raw.freightCharge),
+    insuranceCharge: money(raw.insuranceCharge),
+  };
+};
+
+/**
+ * A monetary amount that may legitimately be absent.
+ *
+ * Distinct from `weight`: a blank charge must stay blank so the invoice omits the
+ * line, whereas a blank weight is genuinely 0 kg.
+ *
+ * @param {*} v
+ * @returns {number|''}
+ */
+function money(v) {
+  if (v === '' || v === null || v === undefined) return '';
+  const n = safeNum(v, NaN);
+  if (!Number.isFinite(n)) return '';
+  return Math.min(Math.abs(n), MAX_MONEY);
+}
+
+/** Paper sizes the PDF layer understands. */
+export const VALID_PAPER_SIZES = ['a4', 'letter'];
+
+/**
+ * Normalise one parties-book entry. Returns null for junk so a corrupt array
+ * degrades entry-by-entry rather than losing the whole book.
+ *
+ * @param {*} raw
+ * @param {number} index
+ * @returns {object|null}
+ */
+export const normalizeParty = (raw, index = 0) => {
+  if (!isPlainObject(raw)) return null;
+  const name = str(raw.name);
+  const address = str(raw.address);
+  // An entry with neither a name nor an address cannot appear on a document.
+  if (!name && !address) return null;
+
+  return {
+    ...raw,
+    id: str(raw.id) || genId('party'),
+    label: str(raw.label) || name || `Party ${index + 1}`,
+    name,
+    address,
+    contact: str(raw.contact),
+    taxId: str(raw.taxId),
+    country: str(raw.country),
+  };
+};
+
+/**
+ * Normalise the company profile.
+ *
+ * The logo gets particular care: it is a data URL that has been through
+ * localStorage, a JSON backup, and possibly a hand edit. A non-data-URL string
+ * there would reach `doc.addImage` and throw mid-export, so anything that is not
+ * recognisably an image data URL is dropped rather than passed on.
+ *
+ * @param {*} raw
+ * @returns {object}
+ */
+export const normalizeCompany = (raw) => {
+  const src = isPlainObject(raw) ? raw : {};
+  const logo = str(src.logo);
+
+  return {
+    ...src,
+    name: str(src.name),
+    address: str(src.address),
+    phone: str(src.phone),
+    email: str(src.email),
+    website: str(src.website),
+    gst: str(src.gst),
+    iec: str(src.iec),
+    cin: str(src.cin),
+    logo: /^data:image\/[a-z+]+;base64,/i.test(logo) ? logo : '',
+    defaultIncoterm: str(src.defaultIncoterm),
+    defaultCurrency: str(src.defaultCurrency) || 'USD',
+    paperSize: VALID_PAPER_SIZES.includes(src.paperSize) ? src.paperSize : 'a4',
+    parties: Array.isArray(src.parties)
+      ? src.parties.map(normalizeParty).filter(Boolean)
+      : [],
   };
 };
 
